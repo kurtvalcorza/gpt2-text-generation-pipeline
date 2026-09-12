@@ -1,14 +1,59 @@
-# gpt2-text-generation-pipeline
+# GPT-2 124M text generation pipeline
 
-DIMER pipeline scaffold for **openai-community/gpt2** — Causal text generation.
+DIMER inference wrapper for **GPT-2 124M** (`openai-community/gpt2`), pinned to an immutable Hugging Face revision and loaded only from a digest-verified local snapshot. The pipeline continues one English prompt per call: greedy decoding by default (deterministic), nucleus sampling only when asked for and seeded. It is a base language model — no chat format, no instruction following, no safety tuning.
 
-| | |
-|---|---|
-| Upstream model | [`openai-community/gpt2`](https://huggingface.co/openai-community/gpt2) |
-| Pinned revision | `607a30d783dfa663caf39e06633721c8d4cfcd7e` (resolved 2026-09-12) |
-| Upstream license | `mit` (verified on the Hub 2026-09-12; re-check at the pinned revision before release) |
-| Weight files to stage | `model.safetensors` |
-| Status | scaffold only — no pipeline code yet |
+## Upstream alignment
 
-Weights are staged under `weights/` and are git-ignored. This repository follows the
-MODEL_CARD_SPEC 1.1 / NOTEBOOK_SPEC 1.0 conventions used by the other `*-pipeline` repos.
+- Model: `openai-community/gpt2`
+- Revision: `607a30d783dfa663caf39e06633721c8d4cfcd7e`
+- Upstream weight license: MIT
+- Upstream task: causal language modelling / text generation (English)
+- Repository adaptation: **none**; inference only
+
+## Quick start
+
+```python
+from gpt2_text_generation_pipeline import GPT2TextGenerationPipeline
+
+pipe = GPT2TextGenerationPipeline.from_pretrained()        # stages + verifies weights/gpt2 first
+
+# greedy (deterministic) continuation, 32 new tokens
+result = pipe.generate("The weather in the mountains is usually", max_new_tokens=32)
+print(result["completion"], result["finished_by"])         # new text only; "eos" or "max_new_tokens"
+
+# sampling must be explicit and seeded; the settings are echoed in result["settings"]
+result = pipe.generate("The weather in the mountains is usually",
+                       max_new_tokens=16, do_sample=True, temperature=0.8, top_p=0.9, seed=7)
+```
+
+Install into a Python 3.12 environment that already holds the pinned dependencies with `pip install -e . --no-deps`; run `pytest -q -o addopts= tests` for the offline test suite (no weights needed). On a fresh clone the manifest is committed but the weights are not: `GPT2TextGenerationPipeline.from_pretrained(allow_download=True)` fetches exactly the missing manifest-listed files at the pinned revision, then verifies them.
+
+## Weights layout
+
+```
+weights/gpt2/
+  dimer-base-manifest.json      # modelId, revision, per-file bytes + SHA-256 (15 files, 554,331,411 bytes)
+  config.json, generation_config.json
+  tokenizer.json, tokenizer_config.json, vocab.json, merges.txt
+  model.safetensors             # git-ignored, 548,105,171 bytes
+  onnx/                         # 7 upstream ONNX-export config/tokenizer files; verified, unused here
+  README.md
+```
+
+## Input ceilings
+
+`CONTEXT_LENGTH = 1024` (prompt + new tokens), `MAX_PROMPT_TOKENS = 1023`, `MAX_NEW_TOKENS = 256`, `MAX_TEXT_CHARS = 4000`; one prompt per call; prompts are rejected, never truncated. GPT-2 has no pad token, so `PAD_TOKEN_ID = EOS_TOKEN_ID = 50256` is fixed in code. See `MODEL_CARD.md` for the measured CPU timings and the decoding rules.
+
+## Release status
+
+**Candidate / source-complete.** The pipeline package, offline unit tests, a local CPU smoke run, and `MODEL_CARD.md` (MODEL_CARD_SPEC 1.1) exist. No tutorial notebook ships yet; nothing here is clean-runtime notebook evidence.
+
+## Documentation
+
+- `MODEL_CARD.md` — MODEL_CARD_SPEC 1.1 card, provenance digests, input/output contract, measured runtime.
+- `docs/WEIGHTS.md` — weight provenance and hosting notes.
+- `STATUS.md` — release status.
+
+## Licensing
+
+This repository's code is Apache-2.0 (see `LICENSE`). The upstream weights are MIT-licensed; see `docs/WEIGHTS.md` and `MODEL_CARD.md`.
