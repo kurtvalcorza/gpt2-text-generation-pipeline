@@ -19,7 +19,11 @@ base_model: openai-community/gpt2
 
 ## Interactive Colab Tutorials
 
-This release ships no tutorial notebook (`tutorials/` is absent). The package is exercised through its test suite (`tests/`) and the run instructions in the README; a `NOTEBOOK_SPEC` 1.0 `TASK-INFERENCE` notebook is a follow-up, not a claim this card makes.
+This pipeline provides a ready-to-run interactive Google Colab notebook that exercises the repository's public API end to end — bootstrap a fresh runtime, stage and verify the pinned upstream revision, validate an input, run the task, and inspect and export the outputs:
+
+- **Task Inference Tutorial**:  
+  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kurtvalcorza/gpt2-text-generation-pipeline/blob/main/tutorials/gpt2_text_generation_colab.ipynb) [`gpt2_text_generation_colab.ipynb`](https://github.com/kurtvalcorza/gpt2-text-generation-pipeline/blob/main/tutorials/gpt2_text_generation_colab.ipynb)  
+  *Open-ended English text continuation with the pinned `openai-community/gpt2` weights: greedy decoding by default (repeat asserted identical) and seeded nucleus sampling on request (same seed asserted identical), decoding settings echoed, pad/EOS quirk stated; no metric (perplexity needs a corpus).*
 
 ---
 
