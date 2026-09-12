@@ -1,0 +1,27 @@
+# Tutorials
+
+[![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat&logo=github&logoColor=white)](https://github.com/kurtvalcorza/gpt2-text-generation-pipeline)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kurtvalcorza/gpt2-text-generation-pipeline/blob/main/tutorials/gpt2_text_generation_colab.ipynb)
+[![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-openai--community%2Fgpt2-ffcc4d?style=flat)](https://huggingface.co/openai-community/gpt2)
+[![Upstream](https://img.shields.io/badge/Upstream-openai%2Fgpt--2-181717?style=flat&logo=github&logoColor=white)](https://github.com/openai/gpt-2)
+
+Notebook specification: **DIMER Notebook Specification 1.0**
+
+No arXiv badge: the GPT-2 paper is an OpenAI technical report with no arXiv identifier (linked from the notebook's References).
+
+| Notebook | Profile | Capability | Default runtime | BYOD | Release status |
+|---|---|---|---|---|---|
+| `gpt2_text_generation_colab.ipynb` | `TASK-INFERENCE` | GPT-2 124M causal text generation on one synthetic English prompt: the greedy default (deterministic; repeat call byte-identical) and explicit, seeded nucleus sampling (settings echoed; same seed reproduces); `finished_by` and the pad/EOS quirk stated; no quality metric exists or is reported | CPU float32 (CUDA used automatically when available, also float32) | one UTF-8 text file holding the prompt, gated off by default | **Candidate** — static checks pass; the clean-runtime execution row in `../docs/release-verification.md` is pending and must be recorded for the exact notebook revision before promotion |
+
+## Conformance notes
+
+- The notebook exercises `GPT2TextGenerationPipeline` from the repository public API rather than reimplementing model loading; the pipeline pins the immutable upstream revision, stages the missing snapshot file through the package's `stage_missing_files(..., allow_download=True)`, loads only from a digest-verified local snapshot (`verify_snapshot`), and refuses remote model code. The notebook never calls `transformers` or `huggingface_hub` directly and never calls the model's own `generate`.
+- Decoding semantics (INF8/INF9): greedy (`do_sample=False`, the default) is presented as the deterministic reference mode and demonstrated with a byte-identical repeat call; nucleus sampling (`do_sample=True`, `temperature`, `top_p`, mandatory `seed`) is presented as the mode usually preferred for use and demonstrated with a same-seed repeat; every setting is validated before the model runs through the package's public `validate_settings` and echoed back in `settings`, and the export records both configurations.
+- Pad/EOS quirk: GPT-2 ships no pad token; the pipeline fixes `PAD_TOKEN_ID = EOS_TOKEN_ID = 50256` in code and the notebook prints and explains it, including what `finished_by = 'eos'` means.
+- No intrinsic metric exists (EVAL9): a continuation has no ground truth; the repository ships no metric helper; the notebook says so, names what a real evaluation needs (a held-out reference corpus for perplexity, or human judgements / a labelled downstream task), and presents its sanity checks (settings echoed, token budgets, determinism) as plumbing checks only. The model card's smoke completions are quoted as observations from one host, not expected values. Recorded `SHOULD` deviation: EVAL11 (no baseline — none is meaningful without a reference).
+- Ceilings `CONTEXT_LENGTH`, `MAX_PROMPT_TOKENS`, `MAX_NEW_TOKENS`, `DEFAULT_MAX_NEW_TOKENS`, `MAX_TEXT_CHARS`, `VOCAB_SIZE`, `EOS_TOKEN_ID`, `PAD_TOKEN_ID` are surfaced before the model runs; the token-count ceilings are stated as checked by the pipeline after tokenisation (reject, never truncate) (DAT22/DAT23).
+- The default sample is synthetic text authored in code; `USE_BYOD` defaults to `False` so the sample path never opens an upload dialog.
+- `tools/validate_release_assets.py` performs source validation only. It does not satisfy the
+  clean-runtime execution requirement; a release review must confirm that a recorded clean run in
+  `docs/release-verification.md` matches the notebook revision under review before the status is
+  promoted to `Release-grade`.

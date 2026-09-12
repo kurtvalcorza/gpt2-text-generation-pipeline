@@ -44,9 +44,15 @@ weights/gpt2/
 
 `CONTEXT_LENGTH = 1024` (prompt + new tokens), `MAX_PROMPT_TOKENS = 1023`, `MAX_NEW_TOKENS = 256`, `MAX_TEXT_CHARS = 4000`; one prompt per call; prompts are rejected, never truncated. GPT-2 has no pad token, so `PAD_TOKEN_ID = EOS_TOKEN_ID = 50256` is fixed in code. See `MODEL_CARD.md` for the measured CPU timings and the decoding rules.
 
+## Tutorial
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kurtvalcorza/gpt2-text-generation-pipeline/blob/main/tutorials/gpt2_text_generation_colab.ipynb)
+
+`tutorials/gpt2_text_generation_colab.ipynb` is declared `TASK-INFERENCE` (see `tutorials/README.md`). Its default path authors one synthetic prompt, surfaces the token/character ceilings and the pad/EOS quirk, validates both decoding configurations through `validate_settings` before the model runs, stages the missing `model.safetensors` with `stage_missing_files(..., allow_download=True)` and digest-verifies the snapshot with `verify_snapshot`, generates a greedy continuation (deterministic; repeat call byte-identical) and a seeded nucleus-sampled continuation (settings echoed; same seed reproduces), and exports both results plus provenance as JSON. No metric is reported: a continuation has no ground truth and the repository ships no metric helper (perplexity needs a reference corpus). BYOD is optional and gated off by default.
+
 ## Release status
 
-**Candidate / source-complete.** The pipeline package, offline unit tests, a local CPU smoke run, and `MODEL_CARD.md` (MODEL_CARD_SPEC 1.1) exist. No tutorial notebook ships yet; nothing here is clean-runtime notebook evidence.
+**Candidate.** Static/unit checks do not constitute clean-runtime notebook evidence. Complete `docs/release-verification.md` against the exact release revision before calling the notebook release-grade.
 
 ## Documentation
 
