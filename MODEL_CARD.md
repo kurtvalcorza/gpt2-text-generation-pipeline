@@ -3,6 +3,8 @@ license: mit
 model_card_spec: "1.1"
 pipeline_tag: text-generation
 base_model: openai-community/gpt2
+date_published: "2019-02"
+date_published_source: "openai/gpt-2 staged release, February 2019 (repository first commit 2019-02-11; release post 2019-02-14); Hub history begins 2019-02-18"
 ---
 
 # GPT-2 124M (DIMER package v0.1.0) — Causal Language Model (Text Generation)
@@ -10,7 +12,6 @@ base_model: openai-community/gpt2
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-openai--community%2Fgpt2-ffcc4d?style=flat)](https://huggingface.co/openai-community/gpt2)
 [![Upstream GitHub](https://img.shields.io/badge/Upstream%20GitHub-openai%2Fgpt--2-181717?style=flat&logo=github&logoColor=white)](https://github.com/openai/gpt-2)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Pipeline](https://img.shields.io/badge/Pipeline-gpt2--text--generation--pipeline-2ea44f?style=flat&logo=github)](https://github.com/kurtvalcorza/gpt2-text-generation-pipeline)
 
 > [!WARNING]
 > ⚠️ **Provided for research, training, and evaluation purposes only.** Model weights are redistributed unmodified under their upstream license, which controls your use, including any commercial use or redistribution; the accompanying code and notebooks are released under this repository's license. All of it is supplied **"as is"**, without warranty of any kind, and has not been validated for production, clinical, or safety-critical use. Running the notebooks downloads third-party weights and datasets governed by their own licenses and consumes compute on your own Colab/Kaggle account. To the maximum extent permitted by law, the maintainers of this repository and the DIMER platform accept no liability for any damages arising from their use. Hosting implies no affiliation with or endorsement by the original authors.
@@ -27,7 +28,7 @@ This pipeline provides a ready-to-run interactive Google Colab notebook that exe
 
 ---
 
-###### Description
+#### Description
 
 `openai-community/gpt2` is the Hugging Face mirror of the smallest GPT-2 release from OpenAI's *Language Models are Unsupervised Multitask Learners* (Radford et al., 2019), pinned here to revision `607a30d783dfa663caf39e06633721c8d4cfcd7e`; the upstream README calls it the 124M-parameter version. The snapshot `config.json` describes a decoder-only Transformer: 12 layers (`n_layer`), 768-wide residual stream (`n_embd`), 12 attention heads, learned positional embeddings over a 1024-token window (`n_positions` = `n_ctx`), `gelu_new` activations, and a 50257-entry byte-level BPE vocabulary whose single special token 50256 serves as both beginning- and end-of-text. At inference the model reads the prompt tokens and, one step at a time, produces a distribution over the next token conditioned on everything before it (causal masking); this repository takes the argmax at every step by default, or samples from the nucleus of that distribution when explicitly asked. Nothing is fine-tuned, adapted, or prompted with instructions — GPT-2 is a base language model, not a chat model. What this repository adds is packaging: `GPT2TextGenerationPipeline` in `src/gpt2_text_generation_pipeline/pipeline.py`, `verify_snapshot` and `stage_missing_files` (manifest digest checking and fresh-clone staging), `validate_settings` and the prompt checks in `generate` (type, length, token ceilings, seeded sampling), and a fixed output contract that echoes the decoding settings with every result.
 
