@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -136,6 +136,112 @@ def validate_settings(
     }
 
 
+INPUT_SCHEMA: dict[str, Any] = {
+    "input": "one non-empty str prompt; no special tokens are added and the prompt is continued verbatim",
+    "prompt_chars": [1, MAX_TEXT_CHARS],
+    "prompt_tokens": [1, MAX_PROMPT_TOKENS],
+    "max_new_tokens": [1, MAX_NEW_TOKENS],
+    "context_length": CONTEXT_LENGTH,
+    "temperature": "number > 0 (sampling only)",
+    "top_p": "number in (0, 1] (sampling only)",
+    "seed": "non-negative int, required when do_sample=True",
+    "vocab_size": VOCAB_SIZE,
+    "eos_token_id": EOS_TOKEN_ID,
+    "pad_token_id": PAD_TOKEN_ID,
+    "preprocessing": (
+        "byte-level BPE with no special tokens; a prompt over MAX_PROMPT_TOKENS, or a prompt whose "
+        "tokens plus max_new_tokens exceed CONTEXT_LENGTH, is rejected rather than truncated"
+    ),
+}
+
+
+def _check_prompt(prompt: Any) -> str:
+    """Raise TypeError/ValueError naming the first violated prompt ceiling; return the prompt."""
+    if not isinstance(prompt, str):
+        raise TypeError(f"prompt must be a str, got {type(prompt).__name__}")
+    if not prompt.strip():
+        raise ValueError("prompt must not be empty or whitespace only")
+    if len(prompt) > MAX_TEXT_CHARS:
+        raise ValueError(f"prompt has {len(prompt)} chars > MAX_TEXT_CHARS={MAX_TEXT_CHARS}")
+    return prompt
+
+
+def validate_inputs(
+    prompt: str,
+    *,
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+    do_sample: bool = False,
+    temperature: float = 1.0,
+    top_p: float = 1.0,
+    seed: int | None = None,
+    names: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Validation stage: return the input manifest (schema, per-input observations, verdict).
+
+    Rejection is reported by raising exactly as ``generate`` would: both route the prompt through
+    ``_check_prompt`` and the decoding settings through the public ``validate_settings``. The two
+    token ceilings (``MAX_PROMPT_TOKENS`` and ``prompt + max_new_tokens <= CONTEXT_LENGTH``) need
+    the loaded tokenizer and are therefore enforced inside ``generate``, not here.
+    """
+    checked = _check_prompt(prompt)
+    settings = validate_settings(max_new_tokens, do_sample, temperature, top_p, seed)
+    if names is not None and len(names) != 1:
+        raise ValueError("names must have exactly one entry: generate takes one prompt per call")
+    return {
+        "schema": dict(INPUT_SCHEMA),
+        "inputs": [{"id": names[0] if names else "prompt-0", "chars": len(checked)}],
+        "settings": settings,
+        "verdict": "accepted",
+        "findings": [],
+        "model_id": MODEL_ID,
+        "model_revision": MODEL_REVISION,
+    }
+
+
+def evaluation_report(
+    result: Mapping[str, Any], references: Sequence[str] | None = None, *, sample_kind: str = "synthetic"
+) -> dict[str, Any]:
+    """Evaluation stage: a machine-readable report even though no metric exists here.
+
+    A free-text continuation has no ground truth and the repository ships no metric helper, so the
+    verdict is always ``not-measurable`` (EVAL9). ``references`` exists for interface parity with
+    the fleet's other pipelines and is recorded in ``reason`` rather than scored: perplexity needs a
+    held-out corpus scored by the model, not a reference string compared to one completion, and any
+    quality judgement needs human raters or a labelled downstream task.
+    """
+    settings = result.get("settings", {})
+    supplied = references is not None
+    return {
+        "task": "causal text generation (continuing one prompt)",
+        "score_semantics": (
+            "the completion carries no score, probability or confidence; `finished_by` says whether "
+            "the end-of-text token or the token budget stopped it, and the echoed `settings` say how "
+            f"it was decoded ({settings.get('decoding', DECODING_DEFAULT)})"
+        ),
+        "sample_kind": sample_kind,
+        "n_new_tokens": int(result.get("new_tokens", 0)),
+        "metrics": [],
+        "baselines": [],
+        "verdict": "not-measurable",
+        "reason": (
+            "a continuation has no ground truth and the repository ships no metric helper"
+            + (
+                "; references were supplied but no metric helper exists to score them here, and a "
+                "reference string is not a corpus"
+                if supplied
+                else "; the evaluated sample has no reference corpus"
+            )
+        ),
+        "needs": (
+            "a held-out reference corpus from the deployment domain, scored for perplexity with the "
+            "caller's own code, for an intrinsic number; or human raters, or a labelled downstream "
+            "task, for any quality or factuality claim — none of which this repository ships"
+        ),
+        "model_id": MODEL_ID,
+        "model_revision": MODEL_REVISION,
+    }
+
+
 @dataclass
 class GPT2TextGenerationPipeline:
     """``_tokenize`` maps text to token ids, ``_runner`` maps (prompt ids, settings) to new token ids, and
@@ -210,12 +316,7 @@ class GPT2TextGenerationPipeline:
         seed: int | None = None,
     ) -> dict[str, Any]:
         """Continue one prompt. Greedy (deterministic) unless ``do_sample=True`` with a ``seed``."""
-        if not isinstance(prompt, str):
-            raise TypeError(f"prompt must be a str, got {type(prompt).__name__}")
-        if not prompt.strip():
-            raise ValueError("prompt must not be empty or whitespace only")
-        if len(prompt) > MAX_TEXT_CHARS:
-            raise ValueError(f"prompt has {len(prompt)} chars > MAX_TEXT_CHARS={MAX_TEXT_CHARS}")
+        prompt = _check_prompt(prompt)
         settings = validate_settings(max_new_tokens, do_sample, temperature, top_p, seed)
         prompt_ids = list(self._tokenize(prompt))
         if not 1 <= len(prompt_ids) <= MAX_PROMPT_TOKENS:
