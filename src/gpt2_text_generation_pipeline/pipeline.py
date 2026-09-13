@@ -260,9 +260,6 @@ class GPT2TextGenerationPipeline:
         weights_dir: str | Path | None = None,
         allow_download: bool = False,
     ) -> GPT2TextGenerationPipeline:
-        import torch
-        from transformers import GPT2LMHeadModel, GPT2TokenizerFast
-
         root = Path(weights_dir) if weights_dir is not None else DEFAULT_WEIGHTS_DIR
         if (root / MANIFEST_NAME).is_file():
             stage_missing_files(root, allow_download=allow_download)
@@ -275,6 +272,10 @@ class GPT2TextGenerationPipeline:
                 f"no verified snapshot at {root} and allow_download=False; "
                 f"stage {MODEL_ID}@{MODEL_REVISION} under weights/{MODEL_KEY}"
             )
+        # Refuse invalid snapshots before importing model libraries.
+        import torch
+        from transformers import GPT2LMHeadModel, GPT2TokenizerFast
+
         resolved_device = device or ("cuda:0" if torch.cuda.is_available() else "cpu")
         tokenizer = GPT2TokenizerFast.from_pretrained(
             source, revision=MODEL_REVISION, trust_remote_code=False, **kwargs
