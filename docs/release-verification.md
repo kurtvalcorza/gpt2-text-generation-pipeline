@@ -109,7 +109,7 @@ A known-failing default path in the supported runtime blocks release.
 
 | Notebook | Commit / notebook blob | Date (UTC) | Executor | Outcome |
 |---|---|---|---|---|
-| `tutorials/gpt2_text_generation_colab.ipynb` | | | | pending — queued to the GPU lane |
+| `gpt2_text_generation_colab.ipynb` | `f4020ce` / `263771047488` | 2026-09-14 | Kaggle CPU (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v1) | PASS — 9/9 ok (1 restart after install cell) |
 
 ## Recorded executions
 
@@ -127,7 +127,7 @@ is not notebook execution evidence.
 
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
-| — | — | — | Default sample path | — | pending — queued to the GPU lane |
+| 2026-09-14 | `f4020ce` / `263771047488` | Kaggle CPU (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v1) | Default sample path | 223.9 s | **PASSED** — 9/9 ok code cells executed cleanly, 32 files, 554 MB staged |
 
 ## Current status
 
