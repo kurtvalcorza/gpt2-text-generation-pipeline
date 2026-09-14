@@ -66,7 +66,7 @@ Before changing the registry status from `Candidate` to `Release-grade`:
    `SAMPLE_MAX_NEW_TOKENS = 16`, `TEMPERATURE = 0.8`, `TOP_P = 0.9`, `SEED = 7`);
 4. verify that Section 1 reports `NOTEBOOK_SOURCE.repository_revision` equal to the revision recorded in
    `metadata.dimer.generated_from` and that the installed core package versions equal the inline `PINS` (= the
-   `pyproject.toml` pins (`torch==2.14.0`,
+   `pyproject.toml` pins (`torch==2.14.0`, `torchvision==0.29.0`, `torchaudio==2.11.0`,
    `transformers==4.57.6`, `tokenizers==0.22.2`, `huggingface-hub==0.36.2`, `safetensors==0.8.0`,
    `numpy==2.5.3`);
 5. verify every default-path stage completes:
@@ -109,7 +109,7 @@ A known-failing default path in the supported runtime blocks release.
 
 | Notebook | Commit / notebook blob | Date (UTC) | Executor | Outcome |
 |---|---|---|---|---|
-| `tutorials/gpt2_text_generation_colab.ipynb` | | | | pending — queued to the GPU lane |
+| `gpt2_text_generation_colab.ipynb` | `f4020ce` / `263771047488` | 2026-09-14 | Kaggle CPU (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v1) | PASS — 9/9 ok (1 restart after install cell) |
 
 ## Recorded executions
 
@@ -127,7 +127,7 @@ is not notebook execution evidence.
 
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
-| — | — | — | Default sample path | — | pending — queued to the GPU lane |
+| 2026-09-14 | `f4020ce` / `263771047488` | Kaggle CPU (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v1) | Default sample path | 223.9 s | **PASSED** — 9/9 ok code cells executed cleanly, 32 files, 554 MB staged |
 
 ## Current status
 

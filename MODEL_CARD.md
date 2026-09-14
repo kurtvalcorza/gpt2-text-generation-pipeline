@@ -3,6 +3,8 @@ license: mit
 model_card_spec: "1.1"
 pipeline_tag: text-generation
 base_model: openai-community/gpt2
+date_published: "2019-02"
+date_published_source: "openai/gpt-2 staged release, February 2019 (repository first commit 2019-02-11; release post 2019-02-14); Hub history begins 2019-02-18"
 ---
 
 # GPT-2 124M (DIMER package v0.1.0) — Causal Language Model (Text Generation)
@@ -10,7 +12,6 @@ base_model: openai-community/gpt2
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-openai--community%2Fgpt2-ffcc4d?style=flat)](https://huggingface.co/openai-community/gpt2)
 [![Upstream GitHub](https://img.shields.io/badge/Upstream%20GitHub-openai%2Fgpt--2-181717?style=flat&logo=github&logoColor=white)](https://github.com/openai/gpt-2)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Pipeline](https://img.shields.io/badge/Pipeline-gpt2--text--generation--pipeline-2ea44f?style=flat&logo=github)](https://github.com/kurtvalcorza/gpt2-text-generation-pipeline)
 
 > [!WARNING]
 > ⚠️ **Provided for research, training, and evaluation purposes only.** Model weights are redistributed unmodified under their upstream license, which controls your use, including any commercial use or redistribution; the accompanying code and notebooks are released under this repository's license. All of it is supplied **"as is"**, without warranty of any kind, and has not been validated for production, clinical, or safety-critical use. Running the notebooks downloads third-party weights and datasets governed by their own licenses and consumes compute on your own Colab/Kaggle account. To the maximum extent permitted by law, the maintainers of this repository and the DIMER platform accept no liability for any damages arising from their use. Hosting implies no affiliation with or endorsement by the original authors.
@@ -27,7 +28,7 @@ This pipeline provides a ready-to-run interactive Google Colab notebook that exe
 
 ---
 
-###### Description
+#### Description
 
 `openai-community/gpt2` is the Hugging Face mirror of the smallest GPT-2 release from OpenAI's *Language Models are Unsupervised Multitask Learners* (Radford et al., 2019), pinned here to revision `607a30d783dfa663caf39e06633721c8d4cfcd7e`; the upstream README calls it the 124M-parameter version. The snapshot `config.json` describes a decoder-only Transformer: 12 layers (`n_layer`), 768-wide residual stream (`n_embd`), 12 attention heads, learned positional embeddings over a 1024-token window (`n_positions` = `n_ctx`), `gelu_new` activations, and a 50257-entry byte-level BPE vocabulary whose single special token 50256 serves as both beginning- and end-of-text. At inference the model reads the prompt tokens and, one step at a time, produces a distribution over the next token conditioned on everything before it (causal masking); this repository takes the argmax at every step by default, or samples from the nucleus of that distribution when explicitly asked. Nothing is fine-tuned, adapted, or prompted with instructions — GPT-2 is a base language model, not a chat model. What this repository adds is packaging: `GPT2TextGenerationPipeline` in `src/gpt2_text_generation_pipeline/pipeline.py`, `verify_snapshot` and `stage_missing_files` (manifest digest checking and fresh-clone staging), `validate_settings` and the prompt checks in `generate` (type, length, token ceilings, seeded sampling), and a fixed output contract that echoes the decoding settings with every result.
 
@@ -62,7 +63,7 @@ The training data was captured by a web crawler, not a sensor: the upstream READ
 
 ###### Environment
 
-Operating environment: Python 3.12 with `torch==2.14.0`, `transformers==4.57.6`, `tokenizers==0.22.2`, `safetensors==0.8.0` (exact pins in `pyproject.toml`), float32 on CPU; `from_pretrained` picks `cuda:0` when a GPU is visible, but the CUDA path was not exercised for this card. Measured 2026-09-12 in the Windows venv with `CUDA_VISIBLE_DEVICES=-1` and `device="cpu"`: `verify_snapshot` 0.32 s over 15 files (554 MB), load 4.25 s, 32 greedy tokens from a 7-token prompt 0.67 s on the first call and 0.45 s on the repeat, two seeded 16-token samples 0.59 s together; process wall 7.86 s. Cost grows with prompt length plus new tokens, bounded by the 1024-token window and `MAX_NEW_TOKENS = 256`. Data environment: the model assumes prompts that read like the English web text it was trained on; the further a prompt is from that — technical jargon, dialogue formats, non-English, post-2019 entities — the more the continuation drifts toward generic or invented content, and the pipeline does not measure or flag that drift.
+Operating environment: Python 3.12 with `torch==2.14.0`, `torchvision==0.29.0`, `torchaudio==2.11.0`, `transformers==4.57.6`, `tokenizers==0.22.2`, `safetensors==0.8.0` (exact pins in `pyproject.toml`), float32 on CPU; `from_pretrained` picks `cuda:0` when a GPU is visible, but the CUDA path was not exercised for this card. Measured 2026-09-12 in the Windows venv with `CUDA_VISIBLE_DEVICES=-1` and `device="cpu"`: `verify_snapshot` 0.32 s over 15 files (554 MB), load 4.25 s, 32 greedy tokens from a 7-token prompt 0.67 s on the first call and 0.45 s on the repeat, two seeded 16-token samples 0.59 s together; process wall 7.86 s. Cost grows with prompt length plus new tokens, bounded by the 1024-token window and `MAX_NEW_TOKENS = 256`. Data environment: the model assumes prompts that read like the English web text it was trained on; the further a prompt is from that — technical jargon, dialogue formats, non-English, post-2019 entities — the more the continuation drifts toward generic or invented content, and the pipeline does not measure or flag that drift.
 
 #### Metrics
 
@@ -131,7 +132,7 @@ Prohibited even where the model would work: generating text to impersonate a per
 
 ## Runtime
 
-- Pins: `torch==2.14.0`, `transformers==4.57.6`, `tokenizers==0.22.2`, `huggingface-hub==0.36.2`, `safetensors==0.8.0`, `numpy==2.5.3`; Python 3.12.
+- Pins: `torch==2.14.0`, `torchvision==0.29.0`, `torchaudio==2.11.0`, `transformers==4.57.6`, `tokenizers==0.22.2`, `huggingface-hub==0.36.2`, `safetensors==0.8.0`, `numpy==2.5.3`; Python 3.12.
 - Precision: float32; tokenisation by the snapshot's byte-level BPE (`tokenizer.json`, `vocab.json`, `merges.txt`) with `add_special_tokens=False`; `generate` is called with `pad_token_id=50256`, `eos_token_id=50256`, and an all-ones attention mask, so no padding-related warning is raised for the single-prompt path.
 - Measured 2026-09-12 in the Windows venv (`torch 2.14.0+cu130`, `torch.cuda.is_available()` False under `CUDA_VISIBLE_DEVICES=-1`), device `cpu`, source `local-snapshot`: `verify_snapshot` 0.32 s (15 files, 554 MB); load 4.25 s; `generate("The weather in the mountains is usually", max_new_tokens=32)` → 7 prompt tokens, 32 new tokens, `finished_by = "max_new_tokens"`, completion `" good, but the snow is not.\n\nThe snow is not the only thing that is causing the snow to fall. The snow is also the main source"`, 0.67 s, repeat call byte-identical in 0.45 s; the same prompt with `do_sample=True, temperature=0.8, top_p=0.9, seed=7, max_new_tokens=16` twice → identical completions `" good, but you need to be careful with your gear and don't go to"`, 0.59 s for both calls. Process wall 7.86 s.
 - Tests: `pytest -q -o addopts= tests` — 13 passed, offline, no weights required; `ruff check src tests` clean.
