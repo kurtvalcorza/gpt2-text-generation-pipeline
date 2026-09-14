@@ -7,7 +7,7 @@ date_published: "2019-02"
 date_published_source: "openai/gpt-2 staged release, February 2019 (repository first commit 2019-02-11; release post 2019-02-14); Hub history begins 2019-02-18"
 ---
 
-# GPT-2 124M (DIMER package v0.1.0) — Causal Language Model (Text Generation)
+# GPT-2 124M — Causal Language Model (Text Generation)
 
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-openai--community%2Fgpt2-ffcc4d?style=flat)](https://huggingface.co/openai-community/gpt2)
 [![Upstream GitHub](https://img.shields.io/badge/Upstream%20GitHub-openai%2Fgpt--2-181717?style=flat&logo=github&logoColor=white)](https://github.com/openai/gpt-2)
