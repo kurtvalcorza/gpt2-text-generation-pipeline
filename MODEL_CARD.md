@@ -2,6 +2,7 @@
 license: mit
 model_card_spec: "1.1"
 pipeline_tag: text-generation
+task: "Others - Causal Text Generation"
 base_model: openai-community/gpt2
 date_published: "2019-02"
 date_published_source: "openai/gpt-2 staged release, February 2019 (repository first commit 2019-02-11; release post 2019-02-14); Hub history begins 2019-02-18"
