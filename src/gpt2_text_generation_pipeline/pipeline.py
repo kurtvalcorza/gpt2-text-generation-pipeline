@@ -3,14 +3,21 @@
 Weights load only from a digest-verified local snapshot (``weights/<key>/``) or, when explicitly allowed,
 from the Hugging Face Hub at the pinned revision. One task method, ``generate``: greedy decoding by default
 (deterministic), nucleus sampling only when asked for and seeded. One prompt per call.
+
+The adaptation contract (``evaluate``, ``unigram_baseline``, ``adapt``, ``save_artifact``, ``from_artifact``)
+scores a validated ``{id, text}`` corpus by teacher-forced perplexity, fine-tunes the last transformer blocks
+on it with validation-perplexity epoch selection, and exports the trained tensors as a safetensors adapter
+bound to the pinned base weights. The inference contract above is unchanged by it.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
+import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +40,21 @@ VOCAB_SIZE = 50257  # config.json vocab_size
 EOS_TOKEN_ID = 50256  # config.json eos_token_id == bos_token_id; GPT-2 has no pad token, so pad = eos
 PAD_TOKEN_ID = EOS_TOKEN_ID
 DECODING_DEFAULT = "greedy"  # do_sample=False -> argmax over the next-token distribution at every step
+WEIGHT_FILE = "model.safetensors"
+WEIGHT_SHA256 = (
+    "248dfc3911869ec493c76e65bf2fcf7f615828b0254c12b473182f0f81d3a707"  # manifest digest of WEIGHT_FILE
+)
+PARAMETER_COUNT = 124_439_808
+TRANSFORMER_BLOCKS = 12  # config.json n_layer
+DEFAULT_TRAINABLE_BLOCKS = 4  # the last four transformer blocks (28,351,488 parameters)
+MAX_TRAIN_TOKENS = 512  # text truncation ceiling during adaptation (scoring never truncates — it rejects)
+MAX_EVAL_RECORDS = 2_000
+MAX_RECORDS_FIT = 20_000  # the unigram baseline may be fitted on a whole training split
+MIN_SCORED_RECORDS = 50  # below this a scored corpus is labelled a small sample
+ARTIFACT_FORMAT = "org.valcorza.gpt2.adapter.v1"
+ARTIFACT_FORMAT_VERSION = "1.0"
+ARTIFACT_WEIGHTS_NAME = "adapter.safetensors"
+ARTIFACT_MANIFEST_NAME = "manifest.json"
 
 
 def _sha256(path: Path) -> str:
@@ -252,6 +274,10 @@ class GPT2TextGenerationPipeline:
     _decode: Callable[[list[int]], str]
     device: str = "cpu"
     source: str = "injected"
+    _scorer: Callable[[list[int]], list[float]] | None = field(default=None, repr=False)
+    adapter: dict[str, Any] | None = field(default=None, repr=False)
+    _model: Any = field(default=None, repr=False)
+    _tokenizer: Any = field(default=None, repr=False)
 
     @classmethod
     def from_pretrained(
@@ -303,8 +329,25 @@ class GPT2TextGenerationPipeline:
         def tokenize(text: str) -> list[int]:
             return tokenizer(text, add_special_tokens=False)["input_ids"]
 
+        def scorer(ids: list[int]) -> list[float]:
+            """Per-token NLLs (nats) of ids[1:] given the preceding tokens, under teacher forcing."""
+            input_ids = torch.tensor([ids], dtype=torch.long, device=resolved_device)
+            with torch.inference_mode():
+                logits = model(input_ids=input_ids, attention_mask=torch.ones_like(input_ids)).logits
+            log_probs = torch.log_softmax(logits[0, :-1].float(), dim=-1)
+            return (-log_probs.gather(1, input_ids[0, 1:, None])[:, 0]).tolist()
+
         source_kind = "local-snapshot" if kwargs else "hf-hub"
-        return cls(tokenize, runner, tokenizer.decode, resolved_device, source_kind)
+        return cls(
+            tokenize,
+            runner,
+            tokenizer.decode,
+            resolved_device,
+            source_kind,
+            _scorer=scorer,
+            _model=model,
+            _tokenizer=tokenizer,
+        )
 
     def generate(
         self,
@@ -348,3 +391,299 @@ class GPT2TextGenerationPipeline:
             "model_id": MODEL_ID,
             "model_revision": MODEL_REVISION,
         }
+
+    # ---- adaptation -----------------------------------------------------------------------------------
+
+    def _require_model(self) -> tuple[Any, Any]:
+        if self._model is None or self._tokenizer is None:
+            raise ValueError(
+                "this operation needs a pipeline built with from_pretrained() or from_artifact()"
+            )
+        return self._model, self._tokenizer
+
+    def _record_ids(self, records: Sequence[Mapping[str, Any]]) -> list[list[int]]:
+        """Tokenise validated records; a record is refused (never truncated) above MAX_PROMPT_TOKENS or
+        below two tokens (one token predicts nothing)."""
+        out = []
+        for record in records:
+            ids = list(self._tokenize(record["text"]))
+            if len(ids) > MAX_PROMPT_TOKENS:
+                raise ValueError(
+                    f"record {record['id']} has {len(ids)} tokens; ceiling is {MAX_PROMPT_TOKENS}"
+                )
+            if len(ids) < 2:
+                raise ValueError(f"record {record['id']} tokenises to fewer than two tokens")
+            out.append(ids)
+        return out
+
+    def evaluate(self, records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        """Score every record by teacher-forced perplexity (natural-log NLL per predicted token)."""
+        from .metrics import sequence_metrics
+        from .samples import validate_dataset
+
+        if self._scorer is None:
+            raise ValueError(
+                "this operation needs a pipeline built with from_pretrained() or from_artifact()"
+            )
+        checked = validate_dataset(records, min_records=1, max_records=MAX_EVAL_RECORDS)["records"]
+        started = time.perf_counter()
+        losses = [self._scorer(ids) for ids in self._record_ids(checked)]
+        metrics = sequence_metrics(losses)
+        metrics.update(
+            {
+                "verdict": "measured" if len(checked) >= MIN_SCORED_RECORDS else "measured-small-sample",
+                "adapted": self.adapter is not None,
+                "seconds": round(time.perf_counter() - started, 3),
+                "model_id": MODEL_ID,
+                "model_revision": MODEL_REVISION,
+            }
+        )
+        return metrics
+
+    def unigram_baseline(
+        self, train: Sequence[Mapping[str, Any]], test: Sequence[Mapping[str, Any]]
+    ) -> dict[str, Any]:
+        """Perplexity of an add-one unigram model over the GPT-2 vocabulary, fitted on `train`, on `test`."""
+        from .metrics import unigram_baseline
+        from .samples import validate_dataset
+
+        train_checked = validate_dataset(train, min_records=1, max_records=MAX_RECORDS_FIT)["records"]
+        test_checked = validate_dataset(test, min_records=1, max_records=MAX_EVAL_RECORDS)["records"]
+        return unigram_baseline(self._record_ids(train_checked), self._record_ids(test_checked), VOCAB_SIZE)
+
+    def _trainable_names(self, trainable_blocks: int) -> list[str]:
+        if not isinstance(trainable_blocks, int) or not 1 <= trainable_blocks <= TRANSFORMER_BLOCKS:
+            raise ValueError(f"trainable_blocks must be an int in 1..{TRANSFORMER_BLOCKS}")
+        model, _ = self._require_model()
+        first = TRANSFORMER_BLOCKS - trainable_blocks
+        prefixes = tuple(f"transformer.h.{k}." for k in range(first, TRANSFORMER_BLOCKS))
+        return [name for name, _p in model.named_parameters() if name.startswith(prefixes)]
+
+    def adapt(
+        self,
+        train: Sequence[Mapping[str, Any]],
+        val: Sequence[Mapping[str, Any]] | None = None,
+        *,
+        epochs: int = 2,
+        lr: float = 1e-4,
+        batch_size: int = 8,
+        trainable_blocks: int = DEFAULT_TRAINABLE_BLOCKS,
+        seed: int = 0,
+        progress: Callable[[dict[str, Any]], None] | None = None,
+    ) -> dict[str, Any]:
+        """Bounded causal-LM fine-tuning on a validated text corpus.
+
+        Only the last `trainable_blocks` transformer blocks train (4 by default; the token and position
+        embeddings, the tied output projection, the final layer norm and the earlier blocks stay frozen).
+        Next-token cross-entropy on every token of every record (the end-of-text token is appended so the
+        model also learns where a document ends), AdamW at a fixed learning rate with gradient clipping at
+        1.0, records truncated to MAX_TRAIN_TOKENS **during training only**. Epoch 0 records the frozen
+        model's validation perplexity; the epoch with the lowest validation perplexity is kept."""
+        from .samples import validate_dataset
+
+        if not isinstance(epochs, int) or not 1 <= epochs <= 20:
+            raise ValueError("epochs must be an int in 1..20")
+        if not (0.0 < lr <= 1e-3):
+            raise ValueError("lr must be in (0, 1e-3]")
+        if not isinstance(batch_size, int) or not 1 <= batch_size <= 32:
+            raise ValueError("batch_size must be an int in 1..32")
+        names = self._trainable_names(trainable_blocks)
+        train_checked = validate_dataset(train)["records"]
+        val_checked = (
+            validate_dataset(val, min_records=1, max_records=MAX_EVAL_RECORDS)["records"] if val else []
+        )
+        train_ids = [ids[:MAX_TRAIN_TOKENS] + [EOS_TOKEN_ID] for ids in self._record_ids(train_checked)]
+        import torch
+
+        torch.manual_seed(seed)
+        model, _ = self._require_model()
+        started = time.perf_counter()
+        wanted = set(names)
+        for name, param in model.named_parameters():
+            param.requires_grad_(name in wanted)
+        params = [p for p in model.parameters() if p.requires_grad]
+        n_trainable = sum(p.numel() for p in params)
+        optimiser = torch.optim.AdamW(params, lr=lr, weight_decay=0.01)
+        device = torch.device(self.device)
+
+        def score_val() -> dict[str, Any] | None:
+            if not val_checked:
+                return None
+            model.eval()
+            return {
+                k: v
+                for k, v in self.evaluate(val_checked).items()
+                if k in ("perplexity", "bits_per_token", "n_tokens")
+            }
+
+        history: list[dict[str, Any]] = []
+        entry: dict[str, Any] = {"epoch": 0, "train_loss": None, "val": score_val(), "note": "frozen model"}
+        history.append(entry)
+        if progress:
+            progress(entry)
+        best_ppl = entry["val"]["perplexity"] if entry["val"] else math.inf
+        best_state = {k: v.detach().clone() for k, v in model.state_dict().items() if k in wanted}
+        best_epoch = 0
+        generator = torch.Generator().manual_seed(seed)
+        for epoch in range(1, epochs + 1):
+            model.train()
+            order = torch.randperm(len(train_ids), generator=generator).tolist()
+            losses = []
+            for start in range(0, len(order), batch_size):
+                batch = [train_ids[i] for i in order[start : start + batch_size]]
+                width = max(len(ids) for ids in batch)
+                input_ids = torch.full((len(batch), width), PAD_TOKEN_ID, dtype=torch.long)
+                attention = torch.zeros((len(batch), width), dtype=torch.long)
+                labels = torch.full((len(batch), width), -100, dtype=torch.long)
+                for row, ids in enumerate(batch):
+                    input_ids[row, : len(ids)] = torch.tensor(ids)
+                    attention[row, : len(ids)] = 1
+                    labels[row, : len(ids)] = torch.tensor(ids)
+                out = model(
+                    input_ids=input_ids.to(device),
+                    attention_mask=attention.to(device),
+                    labels=labels.to(device),
+                )
+                optimiser.zero_grad(set_to_none=True)
+                out.loss.backward()
+                torch.nn.utils.clip_grad_norm_(params, 1.0)
+                optimiser.step()
+                losses.append(float(out.loss.detach()))
+            model.eval()
+            entry = {"epoch": epoch, "train_loss": sum(losses) / len(losses), "val": score_val()}
+            history.append(entry)
+            if progress:
+                progress(entry)
+            current = entry["val"]["perplexity"] if entry["val"] else -math.inf
+            if current < best_ppl or not entry["val"]:
+                best_ppl = current
+                best_state = {k: v.detach().clone() for k, v in model.state_dict().items() if k in wanted}
+                best_epoch = epoch
+        merged = dict(model.state_dict())
+        merged.update(best_state)
+        model.load_state_dict(merged, strict=True)
+        model.eval()
+        for param in model.parameters():
+            param.requires_grad_(False)
+        self.adapter = {
+            "trainable_blocks": trainable_blocks,
+            "trainable_names": names,
+            "n_trainable": n_trainable,
+            "n_total": sum(p.numel() for p in model.parameters()),
+            "epochs": epochs,
+            "best_epoch": best_epoch,
+            "selection": "lowest validation perplexity"
+            if val_checked
+            else "final epoch (no validation split)",
+            "lr": lr,
+            "batch_size": batch_size,
+            "max_train_tokens": MAX_TRAIN_TOKENS,
+            "n_train": len(train_checked),
+            "n_train_tokens": sum(len(ids) for ids in train_ids),
+            "n_val": len(val_checked),
+            "seed": seed,
+            "history": history,
+            "seconds": round(time.perf_counter() - started, 2),
+        }
+        return dict(self.adapter)
+
+    # ---- artifacts ------------------------------------------------------------------------------------
+
+    def save_artifact(self, output_dir: str | Path, metadata: Mapping[str, Any] | None = None) -> Path:
+        """Write the adapted transformer-block tensors as safetensors with a manifest naming the base."""
+        if self.adapter is None:
+            raise ValueError("nothing to save: call adapt() first")
+        model, _ = self._require_model()
+        from safetensors.torch import save_file
+
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        names = set(self.adapter["trainable_names"])
+        tensors = {k: v.detach().cpu().contiguous() for k, v in model.state_dict().items() if k in names}
+        weights_path = out / ARTIFACT_WEIGHTS_NAME
+        save_file(tensors, str(weights_path), metadata={"format": "pt"})
+        manifest = {
+            "format": ARTIFACT_FORMAT,
+            "format_version": ARTIFACT_FORMAT_VERSION,
+            "base_model": {
+                "id": MODEL_ID,
+                "revision": MODEL_REVISION,
+                "key": MODEL_KEY,
+                "weight_file": WEIGHT_FILE,
+                "weight_sha256": WEIGHT_SHA256,
+            },
+            "adapter": {k: v for k, v in self.adapter.items() if k not in ("history", "trainable_names")},
+            "history": self.adapter["history"],
+            "tensors": sorted(tensors),
+            "files": [
+                {
+                    "path": ARTIFACT_WEIGHTS_NAME,
+                    "bytes": weights_path.stat().st_size,
+                    "sha256": _sha256(weights_path),
+                }
+            ],
+            "metadata": dict(metadata or {}),
+        }
+        (out / ARTIFACT_MANIFEST_NAME).write_text(
+            json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        return out
+
+    def load_artifact(self, artifact_dir: str | Path) -> dict[str, Any]:
+        """Verify an adapter's manifest and digest, then overwrite exactly the tensors it carries."""
+        root = Path(artifact_dir)
+        manifest = json.loads((root / ARTIFACT_MANIFEST_NAME).read_text(encoding="utf-8"))
+        if manifest.get("format") != ARTIFACT_FORMAT:
+            raise ValueError(f"artifact format {manifest.get('format')!r} != {ARTIFACT_FORMAT!r}")
+        base = manifest.get("base_model", {})
+        if (base.get("id"), base.get("revision"), base.get("weight_sha256")) != (
+            MODEL_ID,
+            MODEL_REVISION,
+            WEIGHT_SHA256,
+        ):
+            raise ValueError("artifact was adapted from a different base model, revision or weight file")
+        entry = manifest["files"][0]
+        weights_path = root / entry["path"]
+        if not weights_path.is_file():
+            raise FileNotFoundError(f"artifact weights missing: {weights_path}")
+        if _sha256(weights_path) != entry["sha256"] or weights_path.stat().st_size != entry["bytes"]:
+            raise ValueError(f"{entry['path']}: digest or size mismatch; refusing to load")
+        model, _ = self._require_model()
+        from safetensors.torch import load_file
+
+        tensors = load_file(str(weights_path))
+        if sorted(tensors) != manifest["tensors"]:
+            raise ValueError("artifact tensor names differ from its manifest")
+        state = model.state_dict()
+        for key, value in tensors.items():
+            if key not in state or not key.startswith("transformer.h."):
+                raise ValueError(
+                    f"artifact tensor {key} is not an adaptable transformer-block tensor of the base"
+                )
+            if tuple(value.shape) != tuple(state[key].shape):
+                raise ValueError(
+                    f"artifact tensor {key}: shape {tuple(value.shape)} != {tuple(state[key].shape)}"
+                )
+        merged = dict(state)
+        merged.update({k: v.to(state[k].dtype) for k, v in tensors.items()})
+        model.load_state_dict(merged, strict=True)
+        model.eval()
+        self.adapter = {
+            **manifest["adapter"],
+            "trainable_names": manifest["tensors"],
+            "history": manifest.get("history", []),
+        }
+        return manifest
+
+    @classmethod
+    def from_artifact(
+        cls,
+        artifact_dir: str | Path,
+        *,
+        device: str | None = None,
+        weights_dir: str | Path | None = None,
+        allow_download: bool = False,
+    ) -> GPT2TextGenerationPipeline:
+        pipeline = cls.from_pretrained(device=device, weights_dir=weights_dir, allow_download=allow_download)
+        pipeline.load_artifact(artifact_dir)
+        return pipeline

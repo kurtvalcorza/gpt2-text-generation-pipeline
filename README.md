@@ -1,6 +1,6 @@
 # GPT-2 124M text generation pipeline
 
-DIMER inference wrapper for **GPT-2 124M** (`openai-community/gpt2`), pinned to an immutable Hugging Face revision and loaded only from a digest-verified local snapshot. The pipeline continues one English prompt per call: greedy decoding by default (deterministic), nucleus sampling only when asked for and seeded. It is a base language model — no chat format, no instruction following, no safety tuning.
+DIMER inference and bounded fine-tuning wrapper for **GPT-2 124M** (`openai-community/gpt2`), pinned to an immutable Hugging Face revision and loaded only from a digest-verified local snapshot. The pipeline continues one English prompt per call: greedy decoding by default (deterministic), nucleus sampling only when asked for and seeded. It is a base language model — no chat format, no instruction following, no safety tuning. The adaptation contract scores a text corpus by held-out **perplexity** against a unigram floor and lowers it with a causal-LM fine-tuning of the last transformer blocks, exported as a safetensors adapter bound to the base weights.
 
 ## Upstream alignment
 
@@ -8,7 +8,7 @@ DIMER inference wrapper for **GPT-2 124M** (`openai-community/gpt2`), pinned to 
 - Revision: `607a30d783dfa663caf39e06633721c8d4cfcd7e`
 - Upstream weight license: MIT
 - Upstream task: causal language modelling / text generation (English)
-- Repository adaptation: **none**; inference only
+- Repository adaptation: bounded causal-LM fine-tuning of the last transformer blocks on a `{id, text}` corpus (`adapt`), measured by held-out perplexity (`evaluate`, `unigram_baseline`); the base weights are never redistributed and the adapter is a tutorial output
 
 ## Quick start
 
@@ -24,6 +24,17 @@ print(result["completion"], result["finished_by"])         # new text only; "eos
 # sampling must be explicit and seeded; the settings are echoed in result["settings"]
 result = pipe.generate("The weather in the mountains is usually",
                        max_new_tokens=16, do_sample=True, temperature=0.8, top_p=0.9, seed=7)
+
+# adaptation: the pinned SciTLDR-A abstracts (fetched and digest-checked at run time), perplexity, fine-tuning
+from gpt2_text_generation_pipeline import fetch_sample_dataset
+
+splits = fetch_sample_dataset()                            # 300 / 50 / 100 {id, text} records, paper-disjoint
+print(pipe.unigram_baseline(splits["train"], splits["test"])["perplexity"])   # the context-free floor
+print(pipe.evaluate(splits["test"])["perplexity"])         # frozen model, teacher-forced
+pipe.adapt(splits["train"], splits["validation"])          # last four blocks, 2 epochs, best validation epoch kept
+print(pipe.evaluate(splits["test"])["perplexity"])         # adapted model
+pipe.save_artifact("outputs/gpt2_adapter")                 # adapter.safetensors + manifest.json
+reloaded = GPT2TextGenerationPipeline.from_artifact("outputs/gpt2_adapter")
 ```
 
 Install into a Python 3.12 environment that already holds the pinned dependencies with `pip install -e . --no-deps`; run `pytest -q -o addopts= tests` for the offline test suite (no weights needed). On a fresh clone the manifest is committed but the weights are not: `GPT2TextGenerationPipeline.from_pretrained(allow_download=True)` fetches exactly the missing manifest-listed files at the pinned revision, then verifies them.
@@ -38,17 +49,18 @@ weights/gpt2/
   model.safetensors             # git-ignored, 548,105,171 bytes
   onnx/                         # 7 upstream ONNX-export config/tokenizer files; verified, unused here
   README.md
+weights/scitldr/                # git-ignored run-time cache of the three pinned SciTLDR-A files (5.5 MB)
 ```
 
 ## Input ceilings
 
-`CONTEXT_LENGTH = 1024` (prompt + new tokens), `MAX_PROMPT_TOKENS = 1023`, `MAX_NEW_TOKENS = 256`, `MAX_TEXT_CHARS = 4000`; one prompt per call; prompts are rejected, never truncated. GPT-2 has no pad token, so `PAD_TOKEN_ID = EOS_TOKEN_ID = 50256` is fixed in code. See `MODEL_CARD.md` for the measured CPU timings and the decoding rules.
+`CONTEXT_LENGTH = 1024` (prompt + new tokens), `MAX_PROMPT_TOKENS = 1023`, `MAX_NEW_TOKENS = 256`, `MAX_TEXT_CHARS = 4000`; one prompt per call; prompts are rejected, never truncated. GPT-2 has no pad token, so `PAD_TOKEN_ID = EOS_TOKEN_ID = 50256` is fixed in code. Corpus records are `{id, text}` (1..4,000 characters, ≤ 1,023 tokens when scored — refused above, never truncated), 8..20,000 per dataset; `adapt` truncates to `MAX_TRAIN_TOKENS = 512` during training only. See `MODEL_CARD.md` for the measured CPU timings, the decoding rules and the adaptation contract.
 
 ## Tutorial
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/kurtvalcorza/gpt2-text-generation-pipeline/blob/main/tutorials/gpt2_text_generation_colab.ipynb)
 
-`tutorials/gpt2_text_generation_colab.ipynb` is declared `TASK-INFERENCE` under DIMER Notebook Specification 1.1 and is **standalone** (§3.6): generated by `tools/build_notebook.py`, it carries the pipeline module, model identity, manifest digests and runtime pins, so the exported notebook runs without this repository (parity enforced by `tests/test_notebook_parity.py`; see `tutorials/README.md`). Its default path authors one synthetic prompt, surfaces the token/character ceilings and the pad/EOS quirk, validates the prompt and both decoding configurations into an input manifest with `validate_inputs` and `validate_settings` before the model runs, stages the missing `model.safetensors` with `stage_missing_files(..., allow_download=True)` and digest-verifies the snapshot with `verify_snapshot`, generates a greedy continuation (deterministic; repeat call byte-identical) and a seeded nucleus-sampled continuation (settings echoed; same seed reproduces), writes an `evaluation_report` whose verdict is always `not-measurable`, and exports both results as CSV plus provenance JSON. No metric is reported: a continuation has no ground truth and the repository ships no metric helper (perplexity needs a reference corpus). BYOD is optional and gated off by default.
+`tutorials/gpt2_text_generation_colab.ipynb` is declared `E2E` (mode `GUIDED`) under DIMER Notebook Specification 2.0 and is **standalone** (§4): generated by `tools/build_notebook.py`, it carries the three pipeline modules (`pipeline.py`, `samples.py`, `metrics.py`), the model identity, manifest digests and runtime pins, so the exported notebook runs without this repository (parity enforced by `tests/test_notebook_parity.py`; see `tutorials/README.md`). Its default path stages the missing `model.safetensors` with `stage_missing_files(..., allow_download=True)` and digest-verifies the snapshot, fetches the three digest-pinned SciTLDR-A files and draws 300 / 50 / 100 paper abstracts from the release's own paper-disjoint members with `validate_dataset` and `check_split_disjoint`, generates greedy (repeat byte-identical) and seeded-sampled (same seed reproduces) continuations of an unseen abstract's opening through the inference contract, reads the frozen model's held-out perplexity beside the unigram floor, fine-tunes the last four transformer blocks for two epochs with validation-perplexity epoch selection, scores the held-out split again (40.17 → 34.73 in the recorded run; floor 1,720.9), prints the adapted model's continuations of three unseen abstracts beside the frozen ones, and exports the adapter as safetensors with a manifest that reloads to identical likelihoods and completions. Six `outputs/` artifacts are written. BYOD (`{id, text}` records as CSV / JSON / JSONL / TXT) is optional and gated off by default.
 
 ## Release status
 
@@ -56,8 +68,9 @@ weights/gpt2/
 
 ## Documentation
 
-- `MODEL_CARD.md` — MODEL_CARD_SPEC 1.1 card, provenance digests, input/output contract, measured runtime.
-- `docs/WEIGHTS.md` — weight provenance and hosting notes.
+- `MODEL_CARD.md` — MODEL_CARD_SPEC 1.1 card, provenance digests, input/output and adaptation contract, measured runtime.
+- `docs/WEIGHTS.md` — weight provenance, hosting notes and the pinned adaptation corpus.
+- `docs/release-verification.md` — the release gate and recorded notebook executions.
 - `STATUS.md` — release status.
 
 ## Licensing
