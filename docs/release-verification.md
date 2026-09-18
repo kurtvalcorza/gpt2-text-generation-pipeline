@@ -96,7 +96,7 @@ Before changing the registry status from `Candidate` to `Release-grade`:
    - Section 4: `fetch_corpus` fetching the three pinned files (3,155,015 / 1,124,865 / 1,204,107 bytes) from
      `raw.githubusercontent.com` into `weights/scitldr/`, 1,992 + 619 + 618 raw papers read, and the seeded draw of
      300 / 50 / 100 records with `check_split_disjoint` reporting no shared text and the three dataset digests
-     `__DIG_TRAIN__` / `__DIG_VAL__` / `__DIG_TEST__`; `outputs/…_train.csv` written; the four dataset refusal probes each
+     `f6230198…` / `479448c6…` / `f39289da…`; `outputs/…_train.csv` written; the four dataset refusal probes each
      raising `ValueError`;
    - Section 5: the ceilings (`CONTEXT_LENGTH` 1024, `MAX_PROMPT_TOKENS` 1023, `MAX_NEW_TOKENS` 256,
      `DEFAULT_MAX_NEW_TOKENS` 32, `MAX_TEXT_CHARS` 4000, `VOCAB_SIZE` 50257, `EOS_TOKEN_ID = PAD_TOKEN_ID` 50256,
@@ -135,7 +135,7 @@ A known-failing default path in the supported runtime blocks release (REL11).
 
 | Notebook | Commit / notebook blob | Date (UTC) | Executor | Outcome |
 |---|---|---|---|---|
-| `gpt2_text_generation_colab.ipynb` (`E2E`) | `__LOCAL_ROW__` | 2026-09-19 | Local pre-flight harness (Windows, CPython 3.12.10, CPU, `google.colab` shim, pins pre-installed) | PASS — pre-flight only, **not** promotion evidence |
+| `gpt2_text_generation_colab.ipynb` (`E2E`) | `1250eb9` / `75cb8bce` | 2026-09-19 | Local pre-flight harness (Windows, CPython 3.12.10, CPU, `google.colab` shim, pins pre-installed) | PASS — pre-flight only, **not** promotion evidence |
 | `gpt2_text_generation_colab.ipynb` (`TASK-INFERENCE`, superseded) | `f4020ce` / `263771047488` | 2026-09-14 | Kaggle CPU (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v1) | PASSED — 9/9 code cells, 223.9 s (1 restart after the install cell); evidence for the earlier inference-only notebook, not for the `E2E` blob |
 
 ## Recorded executions
@@ -147,7 +147,7 @@ runtime, not general estimates.
 
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
-| 2026-09-19 | `__LOCAL_ROW__` | Local pre-flight harness (Windows, CPython 3.12.10, CPU float32, `torch 2.14.0+cu130` with `CUDA_VISIBLE_DEVICES=-1`, `transformers 4.57.6`) | `__LOCAL_EXEC__` |
+| 2026-09-19 | `1250eb9` / `75cb8bce` | Local pre-flight harness (Windows, CPython 3.12.10, CPU float32, `torch 2.14.0+cu130` with `CUDA_VISIBLE_DEVICES=-1`, `transformers 4.57.6`) | Default sample path (install skipped, pins pre-installed → three carried modules → inline manifest assert → `stage_missing_files` fetched 0 of 15 entries because the snapshot was pre-staged → `verify_snapshot` 15 files → `from_pretrained` on CPU → `fetch_corpus` served from the pre-staged cache after its digest checks → 1,992 + 619 + 618 papers read, 300 / 50 / 100 drawn with `check_split_disjoint` clean and digests `f6230198…` / `479448c6…` / `f39289da…` → four dataset refusals → input manifest with the unseeded-sampling refusal → greedy twice and seeded sampling twice on a 26-token test opening with all eight sanity checks `True` → three unseen openings continued → unigram floor → frozen evaluation → `adapt` → validation + test evaluation → before/after continuations → adapter export → reload parity) | 285.5 s | **PASSED** — 11/11 code cells; unigram floor 1,720.9; frozen test perplexity 40.17 (5.328 bits per token, 19,779 tokens, 8.0 s; per-record 19.9 / 40.6 / 97.0); greedy 32 tokens in 0.61 s, `finished_by` `max_new_tokens`; `adapt` 28,351,488 of 124,439,808 params, 300 abstracts (62,583 training tokens), 2 epochs, 248.9 s, validation perplexity 40.97 → 36.71 → 35.19 (`best_epoch` 2, train loss 3.836 → 3.681); **adapted test 34.73 (5.118 bits per token; Δ −5.44 perplexity, −0.21 bits; per-record 19.0 / 35.4 / 84.5)**; 3/3 unseen continuations changed after adaptation, single-prompt report `not-measurable`; adapter 113,410,784 B / 48 tensors, SHA-256 `b83cfce8…`; reload parity exact (ten-record perplexity 36.188268 both ways, 3/3 identical completions); six exports written. Pre-flight; hosted clean-runtime run still required |
 | 2026-09-14 | `f4020ce` / `263771047488` (`TASK-INFERENCE`, superseded) | Kaggle CPU (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v1) | Default sample path of the inference-only notebook: one synthetic prompt, `stage_missing_files` fetching `model.safetensors` from the Hub, `verify_snapshot` over 15 files, greedy and seeded-sampled generation with their determinism checks, `not-measurable` report, CSV + JSON exports | 223.9 s | **PASSED** — 9/9 code cells (1 restart after the install cell), 554 MB staged; history only |
 
 ## Current status
