@@ -17,3 +17,6 @@ weights/**/*.onnx
 weights/**/*.h5
 weights/**/*.msgpack
 weights/**/.cache/
+
+# Pinned SciTLDR corpus cache (fetched at run time, not redistributed)
+weights/scitldr/
