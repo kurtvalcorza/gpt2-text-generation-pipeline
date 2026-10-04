@@ -64,7 +64,7 @@ weights/scitldr/                # git-ignored run-time cache of the three pinned
 
 ## Release status
 
-**Candidate** — the notebook was revised after its Notebook Review Framework v1 review (isolated runtime, rerun validity, BYOD minimum, guided layer); no hosted run of the revised notebook is recorded yet. The previous blob `c843f865`'s 2026-09-19 Kaggle Tesla T4 run passed only after a manual restart after the install cell, which is not a one-pass Run all and not promotion evidence. The records and the promotion gate are in `docs/release-verification.md` and `STATUS.md`. Static and unit checks — including the standalone generator parity checks — are necessary but are not the evidence; a one-pass hosted run is.
+**Candidate** — the notebook was revised after its Notebook Review Framework v1 review (isolated runtime, rerun validity, BYOD minimum, guided layer); the revised notebook (blob `d88cc65843bf`, commit `091ba0c`) completed one pass with no restart and 0 errors on a fresh Colab Tesla T4 under the Colab CLI on 2026-10-04 (sequential CLI execution, not a browser Run all); the BYOD and experiment gates are still outstanding. The previous blob `c843f865`'s 2026-09-19 Kaggle Tesla T4 run passed only after a manual restart after the install cell, which is not a one-pass Run all and not promotion evidence. The records and the promotion gate are in `docs/release-verification.md` and `STATUS.md`. Static and unit checks — including the standalone generator parity checks — are necessary but are not the evidence; a one-pass hosted run is.
 
 ## Documentation
 
