@@ -1,6 +1,6 @@
 """Static release-asset validation for the GPT-2 124M text-generation DIMER pipeline.
 
-Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.0 §4), the tutorial
+Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2 §4), the tutorial
 registry, model card, README, STATUS.md and weight documentation for source conformance and
 cross-document identity consistency, and runs the generator parity checks (PAR1–PAR3).
 
@@ -43,7 +43,10 @@ CODE_MARKERS = (
     "corpus = read_corpus(fetch_corpus(cache_dir='weights/scitldr'))",
     "splits = build_sample_dataset(corpus, seed=SPLIT_SEED)",
     "records = load_byod_dataset(byod_path)",
-    "dataset_manifests = {name: validate_dataset(part) for name, part in splits.items()}",
+    # GPT-m1: each split validated with the minimum the next stage applies; BYOD has a path field
+    "dataset_manifests = validate_splits(splits)",
+    "BYOD_PATH = ''",
+    "byod_path = Path(BYOD_PATH)",
     "disjoint = check_split_disjoint(splits)",
     "write_dataset_csv(train_records, 'outputs/gpt2_text_generation_train.csv')",
     # Stage 5: the inference contract in both modes with its manifest, rejection probe and sanity checks
@@ -61,7 +64,13 @@ CODE_MARKERS = (
     # Stage 6: the unigram floor and the frozen perplexity
     "unigram = pipe.unigram_baseline(train_records, test_records)",
     "frozen_test = pipe.evaluate(test_records)",
-    "assert frozen_test['n_tokens'] == unigram['n_tokens'] and frozen_test['perplexity'] < unigram['perplexity']",
+    "if frozen_test['n_tokens'] != unigram['n_tokens']:",
+    # GPT-m2: the perplexity comparisons are recorded outcomes, not bare assertions
+    "floor_outcome = 'pretrained model below the unigram floor' if frozen_test['perplexity'] < unigram['perplexity']",
+    # GPT-M3: every section that measures or trains the pretrained model starts from it; epoch 0 is checked
+    "pipe.reset_to_pretrained()",
+    "frozen_val = pipe.evaluate(val_records)",
+    "if start_check is not None and start_check > 1e-4:",
     # Stage 7: bounded fine-tuning with explicit hyperparameters
     "adapt_result = pipe.adapt(",
     "trainable_blocks=TRAINABLE_BLOCKS",
@@ -69,13 +78,16 @@ CODE_MARKERS = (
     # Stage 8: held-out evaluation, comparison, assertion
     "adapted_test = pipe.evaluate(test_records)",
     "adapted_val = pipe.evaluate(val_records)",
-    "'delta_vs_frozen'",
-    "assert adapted_test['perplexity'] < frozen_test['perplexity']",
+    "'delta_vs_pretrained'",
+    "adaptation_outcome = 'lowered held-out perplexity' if adapted_test['perplexity'] < frozen_test['perplexity'] else",
+    # GPT-M3: one row per Section 7 run; every export of a run describes one model
+    "run_history = globals().get('run_history', [])",
+    "assert evaluation_report_payload['adaptation']['trainable_blocks'] == artifact_manifest['adapter']['trainable_blocks'] == TRAINABLE_BLOCKS, ",
     # Stage 9: completions before/after, single-prompt report, artifact, reload parity, provenance
     "single_report = evaluation_report(",
     "pipe.save_artifact(artifact_dir, metadata=",
     "reloaded = GPT2TextGenerationPipeline.from_artifact(artifact_dir, weights_dir=WEIGHTS_DIR, device=pipe.device)",
-    "assert abs(ppl_pair[0] - ppl_pair[1]) < 1e-6 and parity['identical_completions'] == parity['of']",
+    "assert abs(ppl_pair[0] - ppl_pair[1]) < 1e-6 and parity['identical_completions'] == parity['of'], ",
     "weight_entry = next(entry for entry in snapshot['files'] if entry['path'] == WEIGHT_FILE)",
     "'weight_format': 'safetensors, digest-verified'",
     "'corpus': {'name': CORPUS_NAME, 'release': CORPUS_RELEASE, 'base_url': CORPUS_BASE_URL",
@@ -83,6 +95,34 @@ CODE_MARKERS = (
     "'model_license': MODEL_LICENSE",
     "transformers.__version__",
     "'device': pipe.device",
+)
+# Learner-facing text the review fixes removed; it must not come back (GPT-M1 restart-dependent install, GPT-M3 the
+# unscoped rerun instruction and the promised outcome, GPT-m1 the wrong minimum, GPT-m4 the environment-less timings).
+STALE_MARKDOWN = (
+    "Restart the runtime, then rerun",
+    "installs the pinned dependencies",
+    "re-run from that cell",
+    "the build record",
+    "The build record",
+    "watch the gain shrink",
+    "8..20,000 records",
+)
+# The guided layer (NOTEBOOK_SPEC 2.2 §3.5, GDL1-GDL14; review GPT-M2): each marker with its minimum count.
+GUIDED_MARKERS = (
+    ("**Who this is for.**", 1),
+    ("**Input → Model → Output.**", 1),
+    ("**How to use this notebook.**", 1),
+    ("**Roadmap:**", 1),
+    ("**Predict before running:**", 6),
+    ("**What to notice:**", 6),
+    ("<summary>Check your reasoning</summary>", 7),
+    ("## 10. Your turn — change one thing", 1),
+    ("**Predict → Change one thing → Run → Observe → Explain.**", 1),
+    ("## Troubleshooting", 1),
+    ("## Glossary", 1),
+    ("## Conclusion (your notes)", 1),
+    ("> **Infrastructure.**", 3),
+    ("**Next experiments**", 1),
 )
 # Profile-specific learner-facing statements.
 MARKDOWN_MARKERS = (
@@ -98,6 +138,12 @@ MARKDOWN_MARKERS = (
     "GPT-2 ships no pad token, so the pipeline fixes `pad_token_id = eos_token_id = 50256`",
     "chat or instruction following (GPT-2 has neither), batching (one prompt per call)",
     "Apache-2.0 (Cachola et al., 2020)",
+    # GPT-m5: the possible pretraining overlap is stated where the pretrained perplexity is first read
+    "**Pretraining overlap.**",
+    # GPT-m1: the effective BYOD minimum
+    "at least **12 unique records**",
+    # tuned-on-test disclosure (Kurt's standing decision)
+    "**optimistic, not independent evidence**",
 )
 # Direct-library use that must stay inside the carried module cell (G2: the notebook calls the
 # pipeline API, it does not reimplement it). Checked on every code cell except the embedded one.
@@ -123,10 +169,10 @@ FORBIDDEN_OUTSIDE_MODULE = (
 # ---------------------------------------------------------------------------
 # Shared checks. Everything below is source/structure validation only. Passing
 # these checks is NOT clean-runtime execution evidence under DIMER Notebook
-# Specification 2.0; see docs/release-verification.md for the release gate.
+# Specification 2.2; see docs/release-verification.md for the release gate.
 # ---------------------------------------------------------------------------
 
-NOTEBOOK_SPEC = "2.0"
+NOTEBOOK_SPEC = "2.2"
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
 PLACEHOLDER = re.compile(r"\b(TODO|TBD|FIXME)\b|Insert text here|Tooltip:", re.I)
@@ -552,8 +598,13 @@ def _validate_embedded_modules(path: Path, notebook: dict, build) -> list[int]:
             cell["metadata"]["dimer"].get("module_sha256") == context["per_module_sha256"][rel],
             f"{path.name}: cell {index} module_sha256 tag does not match {rel}",
         )
+        # GPT-M2: a carried cell is the module plus the generator's one Infrastructure title line, collapsed.
         _check(
-            _cell_source(cell).rstrip("\n") + "\n" == context["embedded"][module],
+            _cell_source(cell).startswith(build.CARRIED_TITLE_PREFIX) and cell.get("metadata", {}).get("cellView") == "form",
+            f"{path.name}: carried module cell {index} must start with the generator's Infrastructure title and be collapsed (cellView: form)",
+        )
+        _check(
+            build.strip_carried_title(_cell_source(cell)).rstrip("\n") + "\n" == context["embedded"][module],
             f"{path.name}: embedded module cell {index} differs from {rel} (PAR1); regenerate the notebook",
         )
     return [index for index, _ in tagged]
@@ -620,8 +671,30 @@ def _validate_notebook_content(
     _check(not missing, f"{path.name}: missing required source markers: {missing}")
     present = [label for label, pattern in FORBIDDEN_PATTERNS if pattern.search(code)]
     _check(not present, f"{path.name}: forbidden/insecure source: {present}")
-    leaked = [marker for marker in FORBIDDEN_OUTSIDE_MODULE if marker in outside]
+    # The two kernel cells (GPT-M1) download the pinned uv wheel themselves; every learner cell is still checked.
+    kernel_cells = {index for index, source, _tree in code_cells if "# dimer: kernel cell" in source}
+    learner = "\n".join(text for index, text in stripped.items() if index not in embedded and index not in kernel_cells)
+    leaked = [marker for marker in FORBIDDEN_OUTSIDE_MODULE if marker in learner]
     _check(not leaked, f"{path.name}: direct library use outside the carried module cell (G2): {leaked}")
+    # GPT-M1: exactly two kernel cells (the isolated install and the router); everything else runs in the uv environment.
+    kernel_raw = [source for _index, source, _tree in code_cells if "# dimer: kernel cell" in source]
+    _check(len(kernel_raw) == 2, f"{path.name}: exactly two kernel cells (isolated install and router) are expected (GPT-M1)")
+    install = next((k for k in kernel_raw if "LOCK_TEXT = r" in k), "")
+    for needed in ('"--managed-python"', '"--require-hashes"', '"--only-binary"', '":all:"', "UV_SHA256", "LOCK_SHA256", 'platform.machine() != "x86_64"'):
+        _check(needed in install, f"{path.name}: the isolated install cell must use {needed} (GPT-M1)")
+    _check("_ip.input_transformers_cleanup.append(_route_to_isolated_runtime)" in "\n".join(kernel_raw), f"{path.name}: later cells must be routed to the isolated environment (GPT-M1)")
+    _check("module.__spec__ = importlib.machinery.ModuleSpec(name, None, is_package=package)" in "\n".join(kernel_raw), f"{path.name}: the worker's google.colab stubs must carry a module spec")
+    titled = sum(1 for _index, source, _tree in code_cells if source.startswith("# @title Infrastructure:"))
+    _check(titled == 7, f"{path.name}: install, router, runtime, three carried-module and model cells must carry an Infrastructure title (GPT-M2), found {titled}")
+    # GPT-M3: Sections 4, 5, 6 and 7 each return the model to its pretrained weights before using it.
+    resets = sum(1 for index, text in stripped.items() if index not in embedded and "pipe.reset_to_pretrained()" in text)
+    _check(resets == 4, f"{path.name}: Sections 4-7 must each call pipe.reset_to_pretrained() (GPT-M3), found {resets}")
+    # GPT-m2: no bare assert in a learner cell; every assert names the failed condition.
+    for index, _source, tree in code_cells:
+        if index in embedded or index in kernel_cells:
+            continue
+        bare = [node.lineno for node in ast.walk(tree) if isinstance(node, ast.Assert) and node.msg is None]
+        _check(not bare, f"{path.name}: cell {index} has an assert without a message (GPT-m2)")
     _check(
         f"pipe = {MODEL_LOAD_EXPR}" in outside,
         f"{path.name}: must load through {MODEL_LOAD_EXPR} (INF1)",
@@ -632,6 +705,11 @@ def _validate_notebook_content(
         _check(filename in code, f"{path.name}: must export {filename}")
     missing_md = [marker for marker in COMMON_MARKDOWN_MARKERS + MARKDOWN_MARKERS if marker not in markdown]
     _check(not missing_md, f"{path.name}: missing learner-facing markers: {missing_md}")
+    stale = [marker for marker in STALE_MARKDOWN if marker in markdown]
+    _check(not stale, f"{path.name}: stale learner-facing text: {stale}")
+    _check("{{" not in markdown and "}}" not in markdown, f"{path.name}: markdown must not show doubled braces (GPT-m3)")
+    short = [(marker, markdown.count(marker), least) for marker, least in GUIDED_MARKERS if markdown.count(marker) < max(least, 1)]
+    _check(not short, f"{path.name}: guided layer incomplete (marker, found, needed): {short}")
     _check(f"**Profile:** `{EXPECTED_PROFILE}`" in markdown, f"{path.name}: markdown must state the profile")
     _check(f"https://huggingface.co/{model_id}" in markdown, f"{path.name}: references must link {model_id}")
 

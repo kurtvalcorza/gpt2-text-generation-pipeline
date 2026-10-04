@@ -223,6 +223,34 @@ def check_split_disjoint(splits: Mapping[str, Sequence[Mapping[str, Any]]]) -> d
     return {name: len(records) for name, records in splits.items()}
 
 
+def validate_splits(splits: Mapping[str, Sequence[Mapping[str, Any]]]) -> dict[str, dict[str, Any]]:
+    """Validate each split with the minimum the next stage applies: the training split needs MIN_RECORDS
+    (what `adapt` requires); validation and test need one record each (what `evaluate` requires). A refusal
+    names the split."""
+    manifests = {}
+    for name, part in splits.items():
+        try:
+            manifests[name] = validate_dataset(part, min_records=MIN_RECORDS if name == "train" else 1)
+        except ValueError as exc:
+            raise ValueError(f"{name} split: {exc}") from None
+    return manifests
+
+
+def _split_sizes(n: int, val_fraction: float, test_fraction: float) -> tuple[int, int, int]:
+    n_test = max(1, round(n * test_fraction))
+    n_val = round(n * val_fraction)
+    return n - n_test - n_val, n_val, n_test
+
+
+def min_split_records(val_fraction: float = 0.15, test_fraction: float = 0.2) -> int:
+    """The smallest number of unique records `split_dataset` accepts with these fractions: the training
+    split must keep MIN_RECORDS (12 with the default fractions: 8 training + 2 validation + 2 test)."""
+    n = MIN_RECORDS
+    while _split_sizes(n, val_fraction, test_fraction)[0] < MIN_RECORDS:
+        n += 1
+    return n
+
+
 def split_dataset(
     records: Sequence[Mapping[str, Any]],
     *,
@@ -242,8 +270,7 @@ def split_dataset(
             seen.add(key)
             unique.append(record)
     random.Random(seed).shuffle(unique)
-    n_test = max(1, round(len(unique) * test_fraction))
-    n_val = round(len(unique) * val_fraction)
+    _n_train, n_val, n_test = _split_sizes(len(unique), val_fraction, test_fraction)
     splits = {
         "test": unique[:n_test],
         "validation": unique[n_test : n_test + n_val],
@@ -251,7 +278,9 @@ def split_dataset(
     }
     if len(splits["train"]) < MIN_RECORDS:
         raise ValueError(
-            f"split leaves {len(splits['train'])} training records; at least {MIN_RECORDS} are required"
+            f"split leaves {len(splits['train'])} training records; at least {MIN_RECORDS} are required. "
+            f"Supply at least {min_split_records(val_fraction, test_fraction)} unique records with these "
+            f"fractions (got {len(unique)} unique of {len(checked)})"
         )
     return splits
 
@@ -263,7 +292,17 @@ def load_byod_dataset(path: str | Path) -> list[dict[str, Any]]:
     if not file_path.is_file():
         raise FileNotFoundError(f"dataset not found: {file_path}")
     suffix = file_path.suffix.lower()
-    text = file_path.read_text(encoding="utf-8")
+    if suffix not in (".csv", ".json", ".jsonl", ".txt"):
+        raise ValueError(
+            f"unsupported BYOD file type {suffix or '(none)'!r}: use .csv, .json, .jsonl or .txt"
+        )
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"{file_path.name} is not UTF-8 text (byte {exc.start}); save it as UTF-8 (a spreadsheet's "
+            "'CSV UTF-8') and try again"
+        ) from None
     if suffix == ".csv":
         rows = list(csv.DictReader(io.StringIO(text)))
         missing = {"id", "text"} - set(rows[0].keys() if rows else set())
