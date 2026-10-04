@@ -3,7 +3,7 @@
 `tutorials/gpt2_text_generation_colab.ipynb` (`E2E`, **standalone** carrier) is a **release candidate** until the
 exact notebook revision has executed top-to-bottom in a clean supported runtime. Unit tests, JSON validation,
 code-cell compilation, the generator parity checks and `tools/validate_release_assets.py` are necessary checks but
-are **not** runtime evidence under DIMER Notebook Specification 2.0 (REL8). This file is the durable release-gate
+are **not** runtime evidence under DIMER Notebook Specification 2.2 (REL8). This file is the durable release-gate
 record for the notebook.
 
 ## Automatic coverage (static, every pull request)
@@ -13,14 +13,18 @@ CI runs `tools/validate_release_assets.py`, which checks:
 - notebook JSON parses; every code cell compiles as plain Python (no `%`/`!` magics); no persisted outputs or
   execution counts; no unresolved placeholder markers; every code cell is preceded by an explanatory markdown cell;
 - exactly one tutorial notebook, named in `tutorials/README.md` with its `E2E` profile, the notebook-spec version
-  and the standalone carrier; `metadata.dimer` declares that profile, spec `2.0`, a §3.3 pedagogical mode,
+  and the standalone carrier; `metadata.dimer` declares that profile, spec `2.2`, a §3.3 pedagogical mode,
   `standalone: true` and `generated_from` (repository, revision, module SHA-256, generator);
 - the standalone carrier (ST1–ST8, PAR1–PAR4): no clone, repository install or repository import on the primary
   path; one cell per carried module (`pipeline.py`, `samples.py`, `metrics.py`), each equal to its source after the
   generator's documented rewrites; the inline `MANIFEST` equal to the committed 15-entry snapshot manifest and the
   inline `PINS` equal to the `pyproject.toml` runtime pins; the notebook byte-identical (on LF) to
-  `tools/build_notebook.py` output for its recorded revision; the pinned-install cell with its
-  restart-on-stale-import guard; `NOTEBOOK_SOURCE` recorded in exports;
+  `tools/build_notebook.py` output for its recorded revision; exactly two kernel cells — the isolated
+  install (pinned `uv` wheel checked by size and SHA-256, managed CPython, `--require-hashes --only-binary :all:`
+  over the carried lock) and the router to the isolated worker — and seven cells titled `Infrastructure` and
+  collapsed; `NOTEBOOK_SOURCE` recorded in exports; the guided-layer markers, a `pipe.reset_to_pretrained()` in
+  each of Sections 4–7, no assert without a message, no doubled braces in markdown, and the absence of the removed
+  text (review GPT-M1..M3, GPT-m1..m4);
 - `MODEL_ID`/`MODEL_REVISION` bound only in the carried module cell (and repeated in the inline manifest, which the
   notebook asserts against the module before fetching), the revision a 40-hex immutable commit, and the same
   identity string in `README.md`, `MODEL_CARD.md` and `docs/WEIGHTS.md` with no stray revisions (the pinned corpus
@@ -59,9 +63,9 @@ checks. They are **not** execution evidence.
 
 | Path | Runtime | Role |
 |---|---|---|
-| Google Colab (supported user path) | Colab CPU runtime (CUDA used automatically when present; float32 either way) | The runtime the tutorial is written for; a clean top-to-bottom run here is promotion evidence |
-| Kaggle CLI kernel or equivalent fresh container | Fresh CPU or GPU container, Python 3.12 image; the committed notebook executed verbatim in a fresh interpreter with a `google.colab` shim and **no repository checkout** (the notebook is standalone) | Reproducible clean-room executor of the same class; needed whenever the hosted kernel pre-imports a NumPy or torch that differs from the `pyproject.toml` pins, because the tutorial's fail-closed stale-import guard correctly halts the in-kernel path after the pinned install |
-| Local harness (pre-flight only) | Workstation, sequential cell executor with a `google.colab` shim, pre-staged pins | Builder pre-flight to catch defects before spending cloud runs; **not** a supported runtime and **not** promotion evidence |
+| Google Colab (supported user path) | Colab CPU or GPU runtime (Linux x86_64; CUDA used automatically when present; float32 either way) | The runtime the tutorial is written for; a clean one-pass top-to-bottom run here is promotion evidence |
+| Kaggle CLI kernel or equivalent fresh container | Fresh Linux x86_64 CPU or GPU container; the committed notebook executed verbatim with **no repository checkout** (the notebook is standalone), its first cell building the isolated environment | Reproducible clean-room executor of the same class; promotion evidence when the run is one pass |
+| Local harness (pre-flight only) | Workstation, sequential cell executor with `DIMER_NOTEBOOK_CI_PREINSTALLED=1` (the isolated environment is skipped), a `google.colab` shim and pre-installed pins | Builder pre-flight to catch defects before spending cloud runs; **not** a supported runtime and **not** promotion evidence |
 
 ## Supported release verification procedure
 
@@ -73,17 +77,19 @@ Before changing the registry status from `Candidate` to `Release-grade`:
    snapshot `weights/gpt2/` or the corpus cache `weights/scitldr/` (the standalone path writes the manifest itself,
    stages the missing file from the Hub, and fetches the three pinned SciTLDR-A files from the project repository,
    so neither directory may be seeded);
-3. run the notebook top-to-bottom without editing implementation cells (form parameters at their defaults:
-   `USE_BYOD = False`, `SPLIT_SEED = 42`, `GREEDY_MAX_NEW_TOKENS = 32`, `SAMPLE_MAX_NEW_TOKENS = 32`,
+3. choose **Run all once** without editing implementation cells (form parameters at their defaults:
+   `USE_BYOD = False`, `BYOD_PATH = ''`, `SPLIT_SEED = 42`, `GREEDY_MAX_NEW_TOKENS = 32`, `SAMPLE_MAX_NEW_TOKENS = 32`,
    `TEMPERATURE = 0.8`, `TOP_P = 0.9`, `SEED = 7`, `EPOCHS = 2`, `LEARNING_RATE = 1e-4`, `BATCH_SIZE = 8`,
-   `TRAINABLE_BLOCKS = 4`);
-4. verify that Section 1 reports `NOTEBOOK_SOURCE.repository_revision` equal to the revision recorded in
-   `metadata.dimer.generated_from` and that the installed core package versions equal the inline `PINS`
+   `TRAINABLE_BLOCKS = 4`, `ADAPT_SEED = 0`); the run must complete every code cell with no error output and **no
+   restart** — record `restarted: false`; a run that needed a restart is not promotion evidence (RUN1, RUN10);
+4. verify that Section 1 builds the isolated environment (it prints the isolated Python 3.12.12 and the number of
+   locked packages), that the runtime cell reports `NOTEBOOK_SOURCE.repository_revision` equal to the revision
+   recorded in `metadata.dimer.generated_from`, and that the imported core package versions equal the inline `PINS`
    (= `pyproject.toml`): `torch==2.14.0`, `transformers==4.57.6`, `tokenizers==0.22.2`, `huggingface-hub==0.36.2`,
-   `safetensors==0.8.0`, `numpy==2.5.3` (an interpreter restart after the install is expected where the runtime's
-   preinstalled torch or numpy differ from the pins);
+   `safetensors==0.8.0`, `numpy==2.5.3` (no restart: the kernel's own packages are never replaced);
 5. verify every default-path stage completes:
-   - pinned runtime installed from the inline `PINS` with no GitHub access;
+   - the isolated environment built from the carried hash-locked lock with no GitHub access, and every later cell
+     routed to it;
    - the three carried module cells execute (defining `GPT2TextGenerationPipeline`, `verify_snapshot`,
      `stage_missing_files`, `validate_inputs`, `validate_settings`, `evaluation_report`, `fetch_corpus`,
      `read_corpus`, `build_sample_dataset`, `filter_records`, `validate_dataset`, `check_split_disjoint`,
@@ -122,7 +128,13 @@ Before changing the registry status from `Candidate` to `Release-grade`:
      `outputs/…_result.json` written with `NOTEBOOK_SOURCE`, the model identity and licence, the snapshot block
      (`weight_format`, `weight_sha256`), the `corpus` block, the inference-contract items, the comparison, the
      before/after completions, the artifact digest, the reload parity, the runtime versions and device;
-6. verify the exports exist and the interpretation section matches the observed path;
+6. verify the exports exist and the interpretation section matches the observed path; then, in the same runtime,
+   the **BYOD gate (REL12)**: set `USE_BYOD = True` with a representative corpus of at least 12 unique `{id, text}`
+   records and **Run after** from Section 4 — Section 6 must report `'adapted': False`, and the run must pass
+   through adaptation, evaluation, export and reload with the BYOD data source in the adapter metadata — and record
+   one refused input (for example an empty upload or a non-UTF-8 file) with its one-line message; and one
+   documented experiment (the Section 10 activity, `TRAINABLE_BLOCKS = 1`, **Run after** from Section 7) with
+   reload parity holding;
 7. record the notebook Git blob id, commit, runtime (platform, Python, PyTorch, Transformers, device), the model
    identifier and immutable revision, whether the model cache, the weights directory and the corpus cache were clean,
    outcome, produced outputs, the observed metrics (as observations, not a benchmark) and any warning or applicable
@@ -135,7 +147,7 @@ A known-failing default path in the supported runtime blocks release (REL11).
 
 | Notebook | Commit / notebook blob | Date (UTC) | Executor | Outcome |
 |---|---|---|---|---|
-| `gpt2_text_generation_colab.ipynb` (`E2E`) | `f41f14f` / `c843f865` | 2026-09-19 | Kaggle Tesla T4 (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v2; image `torch 2.10.0+cu128` / `transformers 5.0.0` before the pinned install, `torch 2.14.0+cu130` / `transformers 4.57.6` after, Python 3.12.13, `cuda:0`) | **PASSED** — 11/11 code cells ok (1 restart after install cell); 35 files, 560 MB staged from the Hub into a clean cache; comparison {perplexity: {unigram_floor: 1721, frozen: 40.17, adapted: 34.7}, bits_per_token: {unigram_floor: 10.75, frozen: 5.328, adapted: 5.117}, mean_nll: {unigram_floor: 7.451, frozen: 3.693, adapted: 3.547}, record_perplexity: {frozen: {min: 19.9, median: 40.6, max: 97}, adapted: {min: 19.1, median: 35.5, max: 85.3}}, delta_vs_frozen: {perplexity: -5.473, bits_per_token: -0.211}}; reload parity {perplexity_in_memory: 36.1, perplexity_reloaded: 36.1, identical_completions: 3, of: 3}; run summary and executed notebook archived under `.agent/backups/kaggle-e2e-2026-09-19/out/dimer-nb2-gpt2-text-generation/v2/evidence/` in the workspace |
+| `gpt2_text_generation_colab.ipynb` (`E2E`) | `f41f14f` / `c843f865` | 2026-09-19 | Kaggle Tesla T4 (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v2; image `torch 2.10.0+cu128` / `transformers 5.0.0` before the pinned install, `torch 2.14.0+cu130` / `transformers 4.57.6` after, Python 3.12.13, `cuda:0`) | **Passed only after a manual restart** — not a one-pass Run all, not promotion evidence (review GPT-M1). 11/11 code cells ok after a restart following the in-kernel install cell (pass 1 stopped at the stale-import guard: `numpy` loaded 2.0.2, installed 2.5.3); 35 files, 560 MB staged from the Hub into a clean cache; comparison {perplexity: {unigram_floor: 1721, frozen: 40.17, adapted: 34.7}, bits_per_token: {unigram_floor: 10.75, frozen: 5.328, adapted: 5.117}, mean_nll: {unigram_floor: 7.451, frozen: 3.693, adapted: 3.547}, record_perplexity: {frozen: {min: 19.9, median: 40.6, max: 97}, adapted: {min: 19.1, median: 35.5, max: 85.3}}, delta_vs_frozen: {perplexity: -5.473, bits_per_token: -0.211}}; reload parity {perplexity_in_memory: 36.1, perplexity_reloaded: 36.1, identical_completions: 3, of: 3}; run summary and executed notebook archived under `.agent/backups/kaggle-e2e-2026-09-19/out/dimer-nb2-gpt2-text-generation/v2/evidence/` in the workspace |
 | `gpt2_text_generation_colab.ipynb` (`E2E`) | `1250eb9` / `75cb8bce` | 2026-09-19 | Local pre-flight harness (Windows, CPython 3.12.10, CPU, `google.colab` shim, pins pre-installed) | PASS — pre-flight only, **not** promotion evidence |
 | `gpt2_text_generation_colab.ipynb` (`TASK-INFERENCE`, superseded) | `f4020ce` / `263771047488` | 2026-09-14 | Kaggle CPU (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v1) | PASSED — 9/9 code cells, 223.9 s (1 restart after the install cell); evidence for the earlier inference-only notebook, not for the `E2E` blob |
 
@@ -148,10 +160,48 @@ runtime, not general estimates.
 
 | Date (UTC) | Commit / notebook blob | Executor | Path exercised | Wall | Outcome |
 |---|---|---|---|---|---|
-| 2026-09-19 | `f41f14f` / `c843f865` | Kaggle Tesla T4 (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v2; image `torch 2.10.0+cu128` / `transformers 5.0.0` before the pinned install, `torch 2.14.0+cu130` / `transformers 4.57.6` after, Python 3.12.13, `cuda:0`) | Default sample path, `Run all` from a fresh interpreter with an empty Hugging Face cache and no repository checkout (blob SHA-1 verified against GitHub before execution) | 251.2 s | **PASSED** — 11/11 code cells ok (1 restart after install cell); 35 files, 560 MB staged from the Hub into a clean cache; comparison {perplexity: {unigram_floor: 1721, frozen: 40.17, adapted: 34.7}, bits_per_token: {unigram_floor: 10.75, frozen: 5.328, adapted: 5.117}, mean_nll: {unigram_floor: 7.451, frozen: 3.693, adapted: 3.547}, record_perplexity: {frozen: {min: 19.9, median: 40.6, max: 97}, adapted: {min: 19.1, median: 35.5, max: 85.3}}, delta_vs_frozen: {perplexity: -5.473, bits_per_token: -0.211}}; reload parity {perplexity_in_memory: 36.1, perplexity_reloaded: 36.1, identical_completions: 3, of: 3}; run summary and executed notebook archived under `.agent/backups/kaggle-e2e-2026-09-19/out/dimer-nb2-gpt2-text-generation/v2/evidence/` in the workspace |
+| 2026-09-19 | `f41f14f` / `c843f865` | Kaggle Tesla T4 (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v2; image `torch 2.10.0+cu128` / `transformers 5.0.0` before the pinned install, `torch 2.14.0+cu130` / `transformers 4.57.6` after, Python 3.12.13, `cuda:0`) | Default sample path, `Run all` from a fresh interpreter with an empty Hugging Face cache and no repository checkout (blob SHA-1 verified against GitHub before execution) | 251.2 s | **Passed only after a manual restart** — not a one-pass Run all, not promotion evidence (review GPT-M1). 11/11 code cells ok after a restart following the in-kernel install cell; 35 files, 560 MB staged from the Hub into a clean cache; comparison {perplexity: {unigram_floor: 1721, frozen: 40.17, adapted: 34.7}, bits_per_token: {unigram_floor: 10.75, frozen: 5.328, adapted: 5.117}, mean_nll: {unigram_floor: 7.451, frozen: 3.693, adapted: 3.547}, record_perplexity: {frozen: {min: 19.9, median: 40.6, max: 97}, adapted: {min: 19.1, median: 35.5, max: 85.3}}, delta_vs_frozen: {perplexity: -5.473, bits_per_token: -0.211}}; reload parity {perplexity_in_memory: 36.1, perplexity_reloaded: 36.1, identical_completions: 3, of: 3}; run summary and executed notebook archived under `.agent/backups/kaggle-e2e-2026-09-19/out/dimer-nb2-gpt2-text-generation/v2/evidence/` in the workspace |
 | 2026-09-19 | `1250eb9` / `75cb8bce` | Local pre-flight harness (Windows, CPython 3.12.10, CPU float32, `torch 2.14.0+cu130` with `CUDA_VISIBLE_DEVICES=-1`, `transformers 4.57.6`) | Default sample path (install skipped, pins pre-installed → three carried modules → inline manifest assert → `stage_missing_files` fetched 0 of 15 entries because the snapshot was pre-staged → `verify_snapshot` 15 files → `from_pretrained` on CPU → `fetch_corpus` served from the pre-staged cache after its digest checks → 1,992 + 619 + 618 papers read, 300 / 50 / 100 drawn with `check_split_disjoint` clean and digests `f6230198…` / `479448c6…` / `f39289da…` → four dataset refusals → input manifest with the unseeded-sampling refusal → greedy twice and seeded sampling twice on a 26-token test opening with all eight sanity checks `True` → three unseen openings continued → unigram floor → frozen evaluation → `adapt` → validation + test evaluation → before/after continuations → adapter export → reload parity) | 285.5 s | **PASSED** — 11/11 code cells; unigram floor 1,720.9; frozen test perplexity 40.17 (5.328 bits per token, 19,779 tokens, 8.0 s; per-record 19.9 / 40.6 / 97.0); greedy 32 tokens in 0.61 s, `finished_by` `max_new_tokens`; `adapt` 28,351,488 of 124,439,808 params, 300 abstracts (62,583 training tokens), 2 epochs, 248.9 s, validation perplexity 40.97 → 36.71 → 35.19 (`best_epoch` 2, train loss 3.836 → 3.681); **adapted test 34.73 (5.118 bits per token; Δ −5.44 perplexity, −0.21 bits; per-record 19.0 / 35.4 / 84.5)**; 3/3 unseen continuations changed after adaptation, single-prompt report `not-measurable`; adapter 113,410,784 B / 48 tensors, SHA-256 `b83cfce8…`; reload parity exact (ten-record perplexity 36.188268 both ways, 3/3 identical completions); six exports written. Pre-flight; hosted clean-runtime run still required |
+| 2026-10-04 | review-fix branch (revised notebook, before commit) | Local pre-flight harness (Windows, CPython 3.12, CPU float32, `torch 2.14.0+cpu`, `transformers 4.57.6`, `DIMER_NOTEBOOK_CI_PREINSTALLED=1`, snapshot and corpus pre-staged, `CUDA_VISIBLE_DEVICES=-1`) | (1) Default path Sections 1–6 (cells 0–7): 1,992 + 619 + 618 papers, splits 300 / 50 / 100 with digests `f6230198…` / `479448c6…` / `f39289da…`, all eight generation checks `True`, unigram floor 1,720.9, pretrained test perplexity 40.17 (19,779 tokens, `'adapted': False`), validation 40.97; the two-epoch Section 7 did not finish inside the 10-minute probe window on this (shared, busy) host and was not run further. (2) 12-record BYOD CSV via `BYOD_PATH` with no `google.colab`, Run all from Section 4 (splits 8 / 2 / 2): pretrained 35.87 → adapted 35.55, `'adapted': False` in Section 6, adapter 48 tensors with data source `BYOD (my_docs.csv)`, reload parity exact. (3) Section 10 activity (`TRAINABLE_BLOCKS = 1`, Run after from Section 7, after the four-block run): epoch-0 check 0.0, 35.87 → 35.67, adapter 12 tensors, reload parity exact. (4) `SEED = 8` rerun of Sections 5–6 after adaptation: pretrained test and validation perplexity identical to the first run, `'adapted': False`. (5) Refusals with one-line messages: 11 records ("Supply at least 12 unique records"), a Latin-1 CSV (not UTF-8), `USE_BYOD = True` with no upload dialog and no `BYOD_PATH`, a cancelled upload (got 0), and a second `adapt` without a reset | 206.5 s for (2)–(5) | **PASSED** — pre-flight only, **not** promotion evidence; the isolated-environment install path (Linux) and the default two-epoch training were not exercised |
+| 2026-10-04 | `091ba0c` / `d88cc65843bf` | Colab CLI 0.7.4 sequential execution, fresh Colab VM, Tesla T4 (kernel Python 3.13.15; isolated Python 3.12.12, `torch 2.14.0+cu130`, `transformers 4.57.6`, `cuda: True`, `cuda:0`; empty Hugging Face cache, no repository checkout) — not a browser Run all | Default settings only (isolated-environment build → three carried modules → stage and verify 15 snapshot files → fetch and split the SciTLDR-A sample → generation contract → unigram floor and pretrained evaluation → two-epoch `adapt` → held-out evaluation → before/after continuations → adapter export → reload parity → run history) | 153.8 s (session wall time, including the 56 s environment build) | **PASSED — one pass, no restart, 0 errors.** 14/14 code cells in order; first hosted completion of the default two-epoch Section 7 for this revision (see the record below) |
 | 2026-09-14 | `f4020ce` / `263771047488` (`TASK-INFERENCE`, superseded) | Kaggle CPU (`kurtvalcorza/dimer-nb2-gpt2-text-generation` v1) | Default sample path of the inference-only notebook: one synthetic prompt, `stage_missing_files` fetching `model.safetensors` from the Hub, `verify_snapshot` over 15 files, greedy and seeded-sampled generation with their determinism checks, `not-measurable` report, CSV + JSON exports | 223.9 s | **PASSED** — 9/9 code cells (1 restart after the install cell), 554 MB staged; history only |
+
+### 2026-10-04 Colab CLI T4 run of `091ba0c` (blob `d88cc65843bf`)
+
+- **Executor:** Google Colab CLI 0.7.4 (`colab exec -f`) on a fresh Colab VM with a Tesla T4. The CLI executes every
+  code cell in order in one kernel; it is **not** a browser Run all, it records no execution counts (order is taken
+  from the `Executing cell k/14` lines in the log), and it renders no forms.
+- **Source identity:** the notebook was fetched from `raw.githubusercontent.com` at the full commit
+  `091ba0c229ba1c46290c13b8a8a0054288f86d4e`; its Git blob `d88cc65843bf75bcc73f313b549a91e4f27f0e31` was checked
+  before the VM was allocated, and the executed notebook's 14 code-cell sources equal the committed ones.
+- **Outcome:** 14/14 code cells, one pass, **no restart** (`restarted: false`), 0 error outputs, no output asks for a
+  restart. Cells 4–6 (the carried `metrics`, `pipeline` and `samples` modules) print nothing by design; the only
+  stderr line is the `transformers` notice that `loss_type=None` falls back to `ForCausalLMLoss`.
+- **Runtime (cells 1–3):** isolated environment `/content/dimer_isolated_env`, Python 3.12.12, 47 locked packages,
+  built in 56 s; every later cell routed to it; `NOTEBOOK_SOURCE.repository_revision` `083a4cb34ff6`, generator
+  `build_notebook.py/2.1`, notebook spec 2.2.
+- **Model (cell 7):** `openai-community/gpt2` at `607a30d783dfa663caf39e06633721c8d4cfcd7e` (MIT), 15 files
+  (554,331,411 bytes) fetched and 15 verified; device `cuda:0`.
+- **Observed metrics** (observations, not a benchmark): 1,992 + 619 + 618 papers, splits 300 / 50 / 100 with digests
+  `f6230198…` / `479448c6…` / `f39289da…`, four refusal probes rejected; 26-token prompt, all eight generation checks
+  `True`, one recorded rejection; unigram floor 1,720.9 (10.749 bits per token, 19,779 tokens); pretrained test
+  perplexity 40.175 (printed 40.18; 5.328 bits per token; per-record 19.9 / 40.6 / 97.0; `'adapted': False`),
+  validation 40.97; Section 7: epoch-0 relative difference to Section 6 **0.0**, 28,351,488 of 124,439,808
+  parameters, 62,583 training tokens, validation perplexity 40.97 → 36.59 → 35.2 (train loss 3.836 → 3.6851,
+  `best_epoch` 2, 32.7 s); held-out test 40.175 → **34.702** (5.117 bits per token; Δ −5.473 perplexity, −0.211 bits;
+  per-record 19.1 / 35.5 / 85.3), `adaptation_outcome` "lowered held-out perplexity"; 3/3 unseen continuations
+  changed, single-prompt report `not-measurable`; adapter 4 blocks, 48 tensors, 113,410,784 bytes; reload parity
+  exact (ten-record perplexity 36.100799 both ways, 3/3 identical completions, reloaded `best_epoch` 2); six exports
+  under `outputs/`; Section 10 history one row (4 blocks, Δ −5.473). Every number equals the previous version's
+  Kaggle T4 run quoted in the worked answers, up to rounding (the pretrained test perplexity prints 40.18 where the
+  prose quotes 40.17; both are 40.175).
+- **Evidence files** (`docs/execution-evidence/2026-10-04/`, byte-exact copies):
+  - `gpt2_text_generation_colab_091ba0c_colab-cli-t4.ipynb` — SHA-256 `44f505d877fed69fdc1451cb69c3e7d009b7cd738e4f2581319e361dee8853c7`
+  - `gpt2_text_generation_colab_091ba0c_colab-cli-t4_exec.log` — SHA-256 `1569a40115a2684a038e2187dd7f7e7268c341c309aa7ccf3374476a6870bf3e`
+  - `gpt2_text_generation_colab_091ba0c_colab-cli-t4_run_summary.json` — SHA-256 `d41fec9b387a1105113f2f92cb5a768c7ba416897f8504063f321f039c7ba111`
+- **Not exercised:** a browser Run all, the BYOD gate (REL12, step 6) and its refusals, the Section 10 activity
+  (`TRAINABLE_BLOCKS = 1`) and the other next experiments on the 300-abstract sample, and a Colab CPU runtime.
 
 ## Current status
 
-**Release-grade.** The `E2E` notebook blob `c843f865` (committed at `f41f14f`) executed top-to-bottom in a clean Kaggle Tesla T4 runtime on 2026-09-19 (11/11 ok (1 restart after install cell), 251.2 s, 35 files, 560 MB fetched from the Hub and digest-verified inside the notebook) with no repository checkout — the REL1/REL10 supported-runtime evidence this file gates on. The local pre-flight rows above are what preceded it and remain history. Any later change to the carried modules or to the notebook produces a new blob, and the registry returns to **Candidate** until a clean run of that blob is recorded here.
+**Candidate.** The earlier promotion rested on the Kaggle Tesla T4 run of blob `c843f865` (`f41f14f`, 2026-09-19), which completed only after a manual restart following the in-kernel install; under NOTEBOOK_SPEC 2.2 (RUN1, RUN10) that is not a one-pass Run all, so the Notebook Review Framework v1 review (2026-10-03, GPT-M1) returned the repository to Candidate. The revised notebook builds an isolated, hash-locked environment instead (Linux x86_64 only), and also fixes the review's rerun-validity (GPT-M3), guided-layer (GPT-M2), BYOD (GPT-m1), assertion (GPT-m2), template (GPT-m3), timing (GPT-m4) and pretraining-overlap (GPT-m5) findings. Its local CPU pre-flight (above) is not promotion evidence. On 2026-10-04 the current blob `d88cc65843bf` (commit `091ba0c`) completed one pass with no restart and 0 errors on a fresh Colab Tesla T4 under the Colab CLI (14/14 code cells, recorded above). That run is sequential CLI execution, not a browser Run all. Status stays **Candidate**: promotion still needs the BYOD and experiment gates of step 6 (REL12) and the maintainer's approval.

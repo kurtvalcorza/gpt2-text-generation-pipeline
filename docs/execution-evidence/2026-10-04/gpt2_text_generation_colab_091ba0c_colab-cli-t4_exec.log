@@ -1,0 +1,73 @@
+[colab] Parsing notebook '/home/kurt/colab-runs/gpt2-text-generation-pipeline-091ba0c-f6bca9/gpt2_text_generation_colab_091ba0c_colab-cli-t4.ipynb'...
+[colab] Executing cell 1/14 - Infrastructure: install the locked runtime into an isolated environment...
+{'isolated_environment': '/content/dimer_isolated_env', 'isolated_python': '3.12.12', 'kernel_python': '3.13.15', 'locked_packages': 47, 'setup_seconds': 56}
+[colab] Executing cell 2/14 - Infrastructure: route the remaining cells to the isolated environment...
+Every later code cell now runs in /content/dimer_isolated_env/bin/python (pid 7479).
+[colab] Executing cell 3/14 - Infrastructure: record the runtime...
+{'notebook_source': {'repository': 'gpt2-text-generation-pipeline', 'repository_revision': '083a4cb34ff6292376d710b8192ddf5de68263ed', 'embedded_module': 'src/gpt2_text_generation_pipeline/pipeline.py', 'embedded_modules': ['src/gpt2_text_generation_pipeline/metrics.py', 'src/gpt2_text_generation_pipeline/pipeline.py', 'src/gpt2_text_generation_pipeline/samples.py'], 'module_sha256': 'a8664567ecf5999f7a819725c846877f9fd48add568ed3e0338f9c27b8df6e73', 'generator': 'build_notebook.py/2.1', 'notebook_spec': '2.2'}, 'python': '3.12.12', 'torch': '2.14.0+cu130', 'transformers': '4.57.6', 'cuda': True}
+[colab] Executing cell 4/14 - Infrastructure: carried module `src/gpt2_text_generation_pipeline/metrics.py` (you may run it without reading it)...
+[colab] Executing cell 5/14 - Infrastructure: carried module `src/gpt2_text_generation_pipeline/pipeline.py` (you may run it without reading it)...
+[colab] Executing cell 6/14 - Infrastructure: carried module `src/gpt2_text_generation_pipeline/samples.py` (you may run it without reading it)...
+[colab] Executing cell 7/14 - Infrastructure: pin, stage and verify the model (you may run it without reading it)...
+{'model_id': 'openai-community/gpt2', 'revision': '607a30d783dfa663caf39e06633721c8d4cfcd7e', 'license': 'mit', 'files': 15, 'total_bytes': 554331411}
+{'weights_dir': '/content/weights/gpt2', 'fetched': ['README.md', 'config.json', 'generation_config.json', 'merges.txt', 'model.safetensors', 'onnx/config.json', 'onnx/generation_config.json', 'onnx/merges.txt', 'onnx/special_tokens_map.json', 'onnx/tokenizer.json', 'onnx/tokenizer_config.json', 'onnx/vocab.json', 'tokenizer.json', 'tokenizer_config.json', 'vocab.json']}
+{'verified_files': 15, 'revision': '607a30d783dfa663caf39e06633721c8d4cfcd7e'}
+{'device': 'cuda:0', 'source': 'local-snapshot'}
+[colab] Executing cell 8/14 - gpt2_text_generation-17...
+{'data_source': 'SciTLDR-A (paper abstracts) (allenai/scitldr @ 5ccad9c00a60ad75c9e04abf7f27d0f53f983b20; Apache-2.0 (Cachola et al. 2020; allenai/scitldr))', 'raw_papers': {'train': 1992, 'dev': 619, 'test': 618}, 'splits': {'train': 300, 'validation': 50, 'test': 100}, 'file_sha256': {'train': 'b222771d387b...', 'dev': '3191fa98ccc0...', 'test': 'fb42dd6cd4f4...'}}
+{'train': {'n': 300, 'unique_texts': 300, 'text_chars': {'min': 345, 'max': 2189}, 'total_chars': 327580, 'digest': 'f6230198abc57586...'}}
+{'validation': {'n': 50, 'unique_texts': 50, 'text_chars': {'min': 414, 'max': 1816}, 'total_chars': 56530, 'digest': '479448c67fc6328e...'}}
+{'test': {'n': 100, 'unique_texts': 100, 'text_chars': {'min': 341, 'max': 1977}, 'total_chars': 105592, 'digest': 'f39289da97bb7025...'}}
+{'example': {'id': 'train-0000', 'text': 'We present a method for policy learning to navigate indoor environments. We adopt a hierarchical policy approach, where two agents are trained to work in cohesion with one another to perform a complex...'}}
+{'probe': 'duplicate id', 'rejected': "duplicate id 'same'"}
+{'probe': 'empty text', 'rejected': 'records[0]: text is empty'}
+{'probe': 'missing field', 'rejected': "records[0] is missing 'text'"}
+{'probe': 'too small', 'rejected': '3 records; 8..20000 are required'}
+[colab] Executing cell 9/14 - gpt2_text_generation-19...
+{'CONTEXT_LENGTH': 1024, 'MAX_PROMPT_TOKENS': 1023, 'MAX_NEW_TOKENS': 256, 'DEFAULT_MAX_NEW_TOKENS': 32, 'MAX_TEXT_CHARS': 4000, 'VOCAB_SIZE': 50257, 'EOS_TOKEN_ID': 50256, 'PAD_TOKEN_ID': 50256, 'MAX_TRAIN_TOKENS': 512}
+{'prompt_tokens': 26, 'greedy': {'new_tokens': 32, 'finished_by': 'max_new_tokens', 'seconds': 0.763}, 'sampled': {'new_tokens': 32, 'finished_by': 'max_new_tokens', 'decoding': 'nucleus-sampling'}, 'checks': {'greedy_settings_echoed': True, 'sampled_settings_echoed': True, 'new_tokens_within_budget': True, 'prompt_tokens_within_ceiling': True, 'text_is_prompt_plus_completion': True, 'finished_by_is_known': True, 'greedy_repeat_is_identical': True, 'same_seed_reproduces': True}, 'findings': 1, 'no_score': 'the pipeline emits no probability or quality score'}
+prompt:  'We introduce a new method for training GANs by applying the Wasserstein-2 metric proximal on the generators. The'
+greedy:  ' Wasserstein-2 metric proximal is a measure of the distance between the two points. The distance is the distance between the two points in the distance domain'
+sampled: ' method, called "Wasserstein-2", uses a simple linear model, but does not employ a gradient descent. The results of this study show that the'
+{'unseen_openings_continued_by_the_pretrained_model': 3}
+[colab] Executing cell 10/14 - gpt2_text_generation-21...
+{'unigram_floor': {'perplexity': 1720.9, 'bits_per_token': 10.749, 'n_tokens': 19779, 'baseline': 'add-one-smoothed unigram model fitted on the training tokens (ignores context)'}, 'seconds': 0.3}
+{'pretrained_model_test': {'perplexity': 40.18, 'bits_per_token': 5.328, 'n_records': 100, 'n_tokens': 19779, 'record_perplexity': {'min': 19.9, 'median': 40.6, 'max': 97.0}, 'verdict': 'measured', 'adapted': False}, 'validation_perplexity': 40.97, 'seconds': 2.9}
+{'definitions': {'perplexity': "exp of the token-weighted mean negative log-likelihood (natural log) of every predicted token in the held-out records under teacher forcing; lower is better; a record's first token is not predicted", 'bits_per_token': 'the same mean negative log-likelihood divided by ln 2', 'mean_nll': 'the token-weighted mean negative log-likelihood in nats'}}
+{'floor_outcome': 'pretrained model below the unigram floor'}
+[colab] Executing cell 11/14 - gpt2_text_generation-23...
+{'epoch': 0, 'train_loss': None, 'val_perplexity': 40.97, 'val_bits_per_token': 5.356, 'note': 'frozen model'}
+`loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.
+{'epoch': 1, 'train_loss': 3.836, 'val_perplexity': 36.59, 'val_bits_per_token': 5.193}
+{'epoch': 2, 'train_loss': 3.6851, 'val_perplexity': 35.2, 'val_bits_per_token': 5.137}
+{'starts_from': 'pretrained weights', 'epoch0_vs_section6_relative_difference': 0.0, 'trainable_parameters': 28351488, 'total_parameters': 124439808, 'train_tokens': 62583, 'best_epoch': 2, 'selection': 'lowest validation perplexity', 'seed': 0, 'seconds': 32.7}
+[colab] Executing cell 12/14 - gpt2_text_generation-25...
+{'perplexity': {'unigram_floor': 1720.941, 'pretrained': 40.175, 'adapted': 34.702}}
+{'bits_per_token': {'unigram_floor': 10.749, 'pretrained': 5.328, 'adapted': 5.117}}
+{'mean_nll': {'unigram_floor': 7.451, 'pretrained': 3.693, 'adapted': 3.547}}
+{'record_perplexity': {'pretrained': {'min': 19.9, 'median': 40.6, 'max': 97.0}, 'adapted': {'min': 19.1, 'median': 35.5, 'max': 85.3}}}
+{'delta_vs_pretrained': {'perplexity': -5.473, 'bits_per_token': -0.211}}
+{'adaptation_outcome': 'lowered held-out perplexity', 'floor_outcome': 'pretrained model below the unigram floor'}
+{'report': 'outputs/gpt2_text_generation_evaluation_report.json'}
+[colab] Executing cell 13/14 - gpt2_text_generation-27...
+{'id': 'unseen-00', 'prompt': 'Many real-world problems, e.g. object detection, have outputs that are naturally expressed as sets of entities. This'}
+{'pretrained': ' is called a "logarithmic" function.\n\nThe logarithmic function is a function that takes a set of entities and returns a set'}
+{'adapted': ' is a problem that has been studied extensively in the field of object detection. However, it is not clear whether the output of a given function is a set of'}
+{'actual': ' creates a challenge for traditional deep neural networks which naturally deal with structured outputs such as vectors, matrices or tensors. We present a novel '}
+{'id': 'unseen-01', 'prompt': 'Foveation is an important part of human vision, and a number of deep networks have also used foveation. However, there'}
+{'pretrained': ' is no evidence that foveation is a reliable predictor of vision.\n\nFoveation is a complex process that involves many different processes, including the formation'}
+{'adapted': ' is little evidence that foveation is a reliable predictor of vision. In this paper, we propose a novel method to test this hypothesis by using a novel neural'}
+{'actual': ' have been few systematic comparisons between foveating and non-foveating deep networks, and between different variable-resolution downsampling methods. Here we'}
+{'id': 'unseen-02', 'prompt': 'We explore the concept of co-design in the context of neural network verification. Specifically, we aim to train deep'}
+{'pretrained': " neural networks to perform a task that requires a specific set of inputs and outputs. We then use the task to test the accuracy of the network's predictions. We"}
+{'adapted': ' neural networks on a set of data sets, and then evaluate the performance of the network on a variety of tasks. We show that the performance of the network on'}
+{'actual': ' neural networks that not only are robust to adversarial perturbations but also whose robustness can be verified more easily. To this end, we identify two prope'}
+{'single_prompt_report_verdict': 'not-measurable', 'adapted_differs_from_pretrained': 3, 'of': 3}
+{'artifact': 'outputs/gpt2_text_generation_adapter', 'format': 'org.valcorza.gpt2.adapter.v1', 'trainable_blocks': 4, 'tensors': 48, 'bytes': 113410784, 'sha256': '12879bd32557be3f...'}
+{'reload_parity': {'perplexity_in_memory': 36.100799, 'perplexity_reloaded': 36.100799, 'identical_completions': 3, 'of': 3}, 'reloaded_best_epoch': 2}
+['gpt2_text_generation_adapter', 'gpt2_text_generation_completions.csv', 'gpt2_text_generation_evaluation_report.json', 'gpt2_text_generation_input_manifest.json', 'gpt2_text_generation_result.json', 'gpt2_text_generation_train.csv']
+[colab] Executing cell 14/14 - gpt2_text_generation-29...
+run | data | trainable_blocks | epochs | learning_rate | trainable_parameters | best_epoch | pretrained_test_perplexity | adapted_test_perplexity | delta_perplexity
+1 | sample | 4 | 2 | 0.0001 | 28351488 | 2 | 40.18 | 34.7 | -5.473
+One run so far. Set TRAINABLE_BLOCKS = 1 in Section 7, select that cell and choose Runtime > Run after; this table then shows both runs.
+[colab] Saving notebook with outputs to '/home/kurt/colab-runs/gpt2-text-generation-pipeline-091ba0c-f6bca9/gpt2_text_generation_colab_091ba0c_colab-cli-t4_output.ipynb'...

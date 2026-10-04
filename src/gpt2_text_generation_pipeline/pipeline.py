@@ -278,6 +278,9 @@ class GPT2TextGenerationPipeline:
     adapter: dict[str, Any] | None = field(default=None, repr=False)
     _model: Any = field(default=None, repr=False)
     _tokenizer: Any = field(default=None, repr=False)
+    # Copy-on-write originals of every tensor adapt() or load_artifact() has changed (GPT-M3): what
+    # reset_to_pretrained() restores, and what save_artifact() checks the rest of the model against.
+    _pretrained: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_pretrained(
@@ -310,6 +313,18 @@ class GPT2TextGenerationPipeline:
             source, revision=MODEL_REVISION, dtype=torch.float32, trust_remote_code=False, **kwargs
         )
         model = model.to(resolved_device).eval()
+        source_kind = "local-snapshot" if kwargs else "hf-hub"
+        return cls.from_model(model, tokenizer, device=resolved_device, source=source_kind)
+
+    @classmethod
+    def from_model(
+        cls, model: Any, tokenizer: Any, *, device: str = "cpu", source: str = "injected"
+    ) -> GPT2TextGenerationPipeline:
+        """Wrap an already loaded causal LM and tokenizer (what from_pretrained does after verifying the
+        snapshot). Tests use it with a small stand-in model; nothing here checks the weights."""
+        import torch
+
+        resolved_device = device
 
         def runner(prompt_ids: list[int], settings: dict[str, Any]) -> list[int]:
             input_ids = torch.tensor([prompt_ids], dtype=torch.long, device=resolved_device)
@@ -337,13 +352,12 @@ class GPT2TextGenerationPipeline:
             log_probs = torch.log_softmax(logits[0, :-1].float(), dim=-1)
             return (-log_probs.gather(1, input_ids[0, 1:, None])[:, 0]).tolist()
 
-        source_kind = "local-snapshot" if kwargs else "hf-hub"
         return cls(
             tokenize,
             runner,
             tokenizer.decode,
             resolved_device,
-            source_kind,
+            source,
             _scorer=scorer,
             _model=model,
             _tokenizer=tokenizer,
@@ -451,6 +465,31 @@ class GPT2TextGenerationPipeline:
         test_checked = validate_dataset(test, min_records=1, max_records=MAX_EVAL_RECORDS)["records"]
         return unigram_baseline(self._record_ids(train_checked), self._record_ids(test_checked), VOCAB_SIZE)
 
+    def _remember_pretrained(self, names: Sequence[str]) -> None:
+        """Keep a copy of each named tensor the first time it is about to change."""
+        model, _ = self._require_model()
+        state = model.state_dict()
+        for name in names:
+            if name not in self._pretrained:
+                self._pretrained[name] = state[name].detach().clone()
+
+    def reset_to_pretrained(self) -> dict[str, Any]:
+        """Restore every tensor an earlier adapt() or load_artifact() changed and drop the adaptation, so
+        the next evaluation measures the pretrained model and the next adapt() starts from it (GPT-M3)."""
+        restored = len(self._pretrained)
+        if self._model is not None:
+            model = self._model
+            if self._pretrained:
+                state = model.state_dict()
+                merged = dict(state)
+                merged.update({k: v.to(state[k].device) for k, v in self._pretrained.items()})
+                model.load_state_dict(merged, strict=True)
+            model.eval()
+            for param in model.parameters():
+                param.requires_grad_(False)
+        self.adapter = None
+        return {"restored_tensors": restored, "adapted": False}
+
     def _trainable_names(self, trainable_blocks: int) -> list[str]:
         if not isinstance(trainable_blocks, int) or not 1 <= trainable_blocks <= TRANSFORMER_BLOCKS:
             raise ValueError(f"trainable_blocks must be an int in 1..{TRANSFORMER_BLOCKS}")
@@ -487,6 +526,12 @@ class GPT2TextGenerationPipeline:
             raise ValueError("lr must be in (0, 1e-3]")
         if not isinstance(batch_size, int) or not 1 <= batch_size <= 32:
             raise ValueError("batch_size must be an int in 1..32")
+        if self.adapter is not None:
+            raise ValueError(
+                "this pipeline already holds an adaptation (trainable_blocks="
+                f"{self.adapter.get('trainable_blocks')}); call reset_to_pretrained() first, so epoch 0 is "
+                "the pretrained model and the exported adapter describes one training run"
+            )
         names = self._trainable_names(trainable_blocks)
         train_checked = validate_dataset(train)["records"]
         val_checked = (
@@ -497,6 +542,7 @@ class GPT2TextGenerationPipeline:
 
         torch.manual_seed(seed)
         model, _ = self._require_model()
+        self._remember_pretrained(names)
         started = time.perf_counter()
         wanted = set(names)
         for name, param in model.named_parameters():
@@ -612,7 +658,23 @@ class GPT2TextGenerationPipeline:
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
         names = set(self.adapter["trainable_names"])
-        tensors = {k: v.detach().cpu().contiguous() for k, v in model.state_dict().items() if k in names}
+        state = model.state_dict()
+        # The adapter carries only `names`; every other tensor must still be the pretrained one, or the
+        # reloaded model (base + adapter) would not be the model in memory (GPT-M3).
+        import torch
+
+        drifted = sorted(
+            k
+            for k, v in self._pretrained.items()
+            if k not in names and not torch.equal(state[k], v.to(state[k].device))
+        )
+        if drifted:
+            raise ValueError(
+                f"{len(drifted)} tensors outside this adapter differ from the pretrained base "
+                f"(first: {drifted[0]}); the export would not reproduce this model. Call "
+                "reset_to_pretrained() and adapt() again."
+            )
+        tensors = {k: v.detach().cpu().contiguous() for k, v in state.items() if k in names}
         weights_path = out / ARTIFACT_WEIGHTS_NAME
         save_file(tensors, str(weights_path), metadata={"format": "pt"})
         manifest = {
@@ -701,6 +763,8 @@ class GPT2TextGenerationPipeline:
         from safetensors.torch import load_file
 
         tensors = load_file(str(weights_path))
+        # Overlay onto the pretrained base, never onto an earlier adaptation (GPT-M3).
+        self.reset_to_pretrained()
         if sorted(tensors) != expected:
             raise ValueError("artifact tensor names differ from its manifest")
         state = model.state_dict()
@@ -713,6 +777,7 @@ class GPT2TextGenerationPipeline:
                 raise ValueError(
                     f"artifact tensor {key}: shape {tuple(value.shape)} != {tuple(state[key].shape)}"
                 )
+        self._remember_pretrained(list(tensors))
         merged = dict(state)
         merged.update({k: v.to(state[k].dtype) for k, v in tensors.items()})
         model.load_state_dict(merged, strict=True)
