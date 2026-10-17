@@ -319,7 +319,7 @@ def test_sequence_metrics_aggregate_token_weighted(forbid_model_imports):
     assert metrics["bits_per_token"] == pytest.approx(1.5)  # (3 * 1 + 3) / 4 bits
     assert metrics["record_perplexity"] == {
         "min": pytest.approx(2.0),
-        "median": pytest.approx(8.0),
+        "median": pytest.approx(5.0),  # the true median of 2 and 8 (review G-m7)
         "max": pytest.approx(8.0),
     }
     assert "perplexity" in metrics["definitions"]

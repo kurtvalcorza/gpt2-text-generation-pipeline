@@ -338,7 +338,7 @@ def test_section4_without_a_path_or_with_a_cancelled_upload_names_the_next_actio
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(sys.modules, "google.colab", None)
     ns = _section4_namespace(tmp_path)
-    with pytest.raises(RuntimeError, match="set BYOD_PATH"):
+    with pytest.raises(sm.DatasetRefused, match="BYOD refused: USE_BYOD = True needs a file.*set BYOD_PATH"):
         _run_section4(nb, ns, use_byod=True, path="")
     google, colab, files = types.ModuleType("google"), types.ModuleType("google.colab"), types.ModuleType("google.colab.files")
     google.__path__, colab.__path__ = [], []
@@ -346,7 +346,7 @@ def test_section4_without_a_path_or_with_a_cancelled_upload_names_the_next_actio
     colab.files, google.colab = files, colab
     for name, module in (("google", google), ("google.colab", colab), ("google.colab.files", files)):
         monkeypatch.setitem(sys.modules, name, module)
-    with pytest.raises(ValueError, match=r"Upload exactly one .* \(got 0; an empty or cancelled upload gives 0\)"):
+    with pytest.raises(sm.DatasetRefused, match=r"Upload exactly one .* \(got 0; an empty or cancelled upload gives 0\)"):
         _run_section4(nb, ns, use_byod=True, path="")
     md = _markdown(nb)
     assert "at least **12 unique records**" in md and "8..20,000 records" not in md
@@ -360,7 +360,7 @@ def test_no_bare_assert_and_the_comparisons_are_recorded(nb: dict) -> None:
         bare = [n.lineno for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Assert) and n.msg is None]
         assert not bare, source[:80]
     floor = _cell(nb, "unigram = pipe.unigram_baseline(")
-    assert "frozen_test['perplexity'] < unigram['perplexity']" in floor and "floor_outcome =" in floor
+    assert "frozen_reference['perplexity'] < unigram['perplexity']" in floor and "floor_outcome =" in floor
     evaluation = _cell(nb, "adapted_test = pipe.evaluate(test_records)")
     assert "adaptation_outcome = " in evaluation and "'adaptation_outcome': adaptation_outcome" in evaluation
     assert "assert adapted_test" not in evaluation
@@ -381,7 +381,8 @@ def test_every_time_names_its_run(nb: dict) -> None:
     md = _markdown(nb)
     for stale in ("the build record", "The build record", "about 114 s", "about ten seconds on CPU", "about five minutes of model time"):
         assert stale not in md, stale
-    assert "local Windows CPU pre-flight took 285.5 s" in md and "Kaggle Tesla T4 run took 251.2 s" in md
+    assert "Colab CLI T4 run of the previous notebook version (2026-10-04, blob d88cc658) took 153.8 s" in md
+    assert "`docs/release-verification.md`" in md and "no hosted run of this version is recorded yet" not in md
 
 
 def test_pretraining_overlap_is_stated_where_the_pretrained_perplexity_is_first_read(nb: dict) -> None:

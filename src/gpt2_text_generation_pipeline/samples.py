@@ -44,6 +44,39 @@ SAMPLE_SPLIT = {"train": 300, "validation": 50, "test": 100}
 MIN_RECORDS = 8
 MAX_RECORDS = 20_000
 _ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+# The pinned fresh test draw of the 2026-10-17 re-selection (docs/reselection-2026-10-17.md): 100 abstracts
+# of the `test` member outside the SAMPLE_SEED test draw, which the 2026-09 sweep scored and which is kept
+# only as the labelled "exposed development test". Texts that also occur in another member are excluded.
+# Pinned by paper id and digest, so a changed corpus, filter or draw is refused instead of silently scored.
+FRESH_TEST_SEED = 20261017
+FRESH_TEST_SIZE = 100
+FRESH_TEST_PAPER_IDS: tuple[str, ...] = (
+    "HkzyX3CcFQ", "rJEjjoR9K7", "rk1FQA0pW", "H1xL_iR9Km", "BJzVUj0qtQ", "HyI6s40a-", "ByZmGjkA-",
+    "S1lNELLKuN", "Hkes0iR9KX", "SkeUG30cFQ", "rkgwuiA9F7", "r1gKNs0qYX", "B1x-LjAcKX", "SJyVzQ-C-",
+    "r1xQQhAqKX", "S1gUsoR9YX", "S1sqHMZCb", "BJJLHbb0-", "H1xAH2RqK7", "HygcvsAcFX", "r1gnQ20qYX",
+    "Skvin0GWM", "ryEquiR9KX", "rkmu5b0a-", "HJGtFoC5Fm", "B1GAUs0cKQ", "H1BLjgZCb", "S1EwLkW0W",
+    "SyMDXnCcF7", "rJgTciR9tm", "rkz1YD0vjm", "r1GaAjRcF7", "rJe7FW-Cb", "Hkfmn5n6W", "HkezXnA9YX",
+    "HJDUjKeA-", "SJd0EAy0b", "BJzmzn0ctX", "Hkc-TeZ0W", "B1GHb2RqYX", "rylbWhC5Ym", "BJzbG20cFQ",
+    "ryf7ioRqFX", "rkf5hnNDj7", "rJg_NjCqtX", "HyWrIgW0W", "BySRH6CpW", "HJSA_e1AW", "H1gR5iR5FX",
+    "S1fNJhRqFX", "SJJQVZW0b", "Hk5elxbRW", "H1g0piA9tQ", "Byx83s09Km", "HJgeEh09KQ", "HJewuJWCZ",
+    "r1kP7vlRb", "rJleN20qK7", "r1gGpjActQ", "rJHcpW-CW", "rJeXCo0cYX", "Bym0cU1CZ", "rkxkr8UKuN",
+    "HkjL6MiTb", "BJ8vJebC-", "BkrSv0lA-", "HJxeGb5pTm", "SkloDjAqYm", "rkMk9j0qYm", "HkfPSh05K7",
+    "Syeil309tX", "SkrHeXbCW", "SJVmjjR9FX", "Hy8hkYeRb", "rkLyJl-0-", "Hy7EPh10W", "BJe0Gn0cY7",
+    "HkgSEnA5KQ", "H1GWAoRcKX", "rJ3fy0k0Z", "r1-4BLaQz", "S1lIMn05F7", "SkffVjUaW", "SJtChcgAW",
+    "HyeGBj09Fm", "HyNmRiCqtm", "HkfwpiA9KX", "HJWpQCa7z", "ByOExmWAb", "BylBns0qtX", "SJgsCjCqt7",
+    "HkxKH2AcFm", "SkHkeixAW", "rygDeZqap7", "HygBZnRctX", "SJLlmG-AZ", "H135uzZ0-", "ByJHuTgA-",
+    "rkgpCoRctm", "BylE1205Fm",
+)
+FRESH_TEST_DIGEST = "a20180b4219a3be5e75fc450406b854ba0b98758c1de92d78f306211aa7f8488"
+
+
+class DatasetRefused(ValueError):
+    """An expected refusal of the learner's data (BYOD): the notebook shows the message, not a traceback."""
+
+    dimer_refusal = True
+
+    def _render_traceback_(self) -> list[str]:  # IPython shows this instead of a traceback
+        return [str(self)]
 
 
 def _sha256_bytes(data: bytes) -> str:
@@ -139,6 +172,85 @@ def build_sample_dataset(
     return out
 
 
+def build_fresh_test(
+    corpus: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    seed: int = FRESH_TEST_SEED,
+    size: int = FRESH_TEST_SIZE,
+    verify: bool = True,
+) -> list[dict[str, Any]]:
+    """The fresh test draw: `test`-member abstracts that are neither in the SAMPLE_SEED test draw (the
+    exposed development test) nor share a text with the `train` or `dev` member, in file order, shuffled with
+    `seed`; the first `size`. With `verify`, refused unless the paper ids and digest are the pinned ones."""
+    exposed = {r["text"].lower() for r in build_sample_dataset(corpus, seed=SAMPLE_SEED)["test"]}
+    elsewhere = {r["text"].lower() for name in ("train", "dev") for r in filter_records(corpus[name])}
+    pool = [r for r in filter_records(corpus["test"]) if r["text"].lower() not in exposed | elsewhere]
+    random.Random(seed).shuffle(pool)
+    if size > len(pool):
+        raise ValueError(f"requested {size} fresh test records but only {len(pool)} are left")
+    out = [{"id": f"fresh-{i:04d}", "text": r["text"], "paper_id": r["paper_id"]} for i, r in enumerate(pool)]
+    out = out[:size]
+    ids = tuple(r["paper_id"] for r in out)
+    if verify and (ids != FRESH_TEST_PAPER_IDS or dataset_digest(out) != FRESH_TEST_DIGEST):
+        raise ValueError("the fresh test draw is not the pinned one (paper ids or digest differ)")
+    return out
+
+
+def check_near_duplicates(
+    splits: Mapping[str, Sequence[Mapping[str, Any]]], *, n: int = 8, threshold: float = 0.5
+) -> dict[str, Any]:
+    """Refuse two records in different splits whose word `n`-gram containment (shared n-grams over the smaller
+    record's n-grams) is at least `threshold`: an edited resubmission under a new id."""
+    grams: list[tuple[str, int, set[tuple[str, ...]]]] = []
+    for name, records in splits.items():
+        for index, record in enumerate(records):
+            words = str(record["text"]).lower().split()
+            grams.append((name, index, {tuple(words[i : i + n]) for i in range(max(0, len(words) - n + 1))}))
+    owners: dict[tuple[str, ...], list[int]] = {}
+    for k, (_name, _index, g) in enumerate(grams):
+        for gram in g:
+            owners.setdefault(gram, []).append(k)
+    worst = 0.0
+    for k, (name, index, g) in enumerate(grams):
+        shared: dict[int, int] = {}
+        for gram in g:
+            for other in owners[gram]:
+                if other > k and grams[other][0] != name:
+                    shared[other] = shared.get(other, 0) + 1
+        for other, count in shared.items():
+            smaller = min(len(g), len(grams[other][2])) or 1
+            containment = count / smaller
+            worst = max(worst, containment)
+            if containment >= threshold:
+                o_name, o_index, _ = grams[other]
+                raise ValueError(
+                    f"{name}[{index}] and {o_name}[{o_index}] share {containment:.0%} of word {n}-grams "
+                    "(a near-duplicate across splits)"
+                )
+    return {"n": n, "threshold": threshold, "max_containment": round(worst, 4)}
+
+
+def build_tutorial_dataset(
+    corpus: Mapping[str, Sequence[Mapping[str, Any]]], *, seed: int = SAMPLE_SEED
+) -> dict[str, list[dict[str, Any]]]:
+    """The tutorial's four sample splits: `train` and `validation` from the seeded draw, `test` = the pinned
+    fresh draw (scored only under the pre-registered settings), and
+    `exposed_test` = the SAMPLE_SEED test draw that the 2026-09 sweep scored (reported
+    once, labelled, for continuity; never used for selection). Paper- and text-disjointness are asserted."""
+    drawn = build_sample_dataset(corpus, seed=seed)
+    exposed = drawn["test"] if seed == SAMPLE_SEED else build_sample_dataset(corpus, seed=SAMPLE_SEED)["test"]
+    splits = {
+        "train": drawn["train"],
+        "validation": drawn["validation"],
+        "test": build_fresh_test(corpus),
+        "exposed_test": exposed,
+    }
+    check_split_disjoint(splits)
+    check_paper_disjoint(splits)
+    check_near_duplicates(splits)
+    return splits
+
+
 def fetch_sample_dataset(
     *,
     cache_dir: str | Path | None = None,
@@ -221,6 +333,20 @@ def check_split_disjoint(splits: Mapping[str, Sequence[Mapping[str, Any]]]) -> d
                 raise ValueError(f"a text ({record['text'][:60]!r}…) appears in both {seen[key]} and {name}")
             seen[key] = name
     return {name: len(records) for name, records in splits.items()}
+
+
+def check_paper_disjoint(splits: Mapping[str, Sequence[Mapping[str, Any]]]) -> dict[str, int]:
+    """Assert no `paper_id` appears in two splits (records without one, such as BYOD records, are skipped)."""
+    seen: dict[str, str] = {}
+    for name, records in splits.items():
+        for record in records:
+            paper = record.get("paper_id")
+            if paper is None:
+                continue
+            if paper in seen and seen[paper] != name:
+                raise ValueError(f"paper {paper!r} appears in both {seen[paper]} and {name}")
+            seen[paper] = name
+    return {name: sum(r.get("paper_id") is not None for r in records) for name, records in splits.items()}
 
 
 def validate_splits(splits: Mapping[str, Sequence[Mapping[str, Any]]]) -> dict[str, dict[str, Any]]:
