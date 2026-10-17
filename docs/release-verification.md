@@ -214,6 +214,8 @@ runtime, not general estimates.
   an estimate of about 1.4 min (measured 90.0 s). Equal at the printed precision: floor 1,674.5, add-0.1 1,204.7,
   pretrained 39.43 (5.30 bits), 21,764 tokens, per-record spread 14–98, 99 of 100, median −0.204, maximum 98 → 90,
   48 tensors / 113,410,784 bytes, 3/3. Follow-up: requote these in `tools/notebook_template.py` and regenerate.
+  Done on 2026-10-17 in the requote commits that follow this record; the notebook now names this run in
+  `RECORDED_EVALUATION`, so a later identical hosted run is labelled a reproduction.
 - **Evidence files** (`docs/execution-evidence/2026-10-17/`, byte-exact copies):
   - `gpt2_text_generation_colab_25182a0_colab-cli-t4.ipynb` — SHA-256 `89c8621fc4a9b221ed01c8d4ee8e638e84d654ac8e427e5e4373bb63a0f96bcf`
   - `gpt2_text_generation_colab_25182a0_colab-cli-t4_exec.log` — SHA-256 `8b6b3006050fa8258529f872df177dd2381674fae8422eced046ebe05ebf5af9`
