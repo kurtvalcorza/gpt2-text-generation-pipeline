@@ -3,7 +3,7 @@
 Phase 1 trains the three grid configurations on the validation split only and writes the selection
 record (``--selection-out``) before any test record is scored. Phase 2 then trains the selected configuration
 once and
-scores it once on the pinned never-scored test draw, and once on the exposed development test (the 100
+scores it on the pinned fresh test draw and on the exposed development test (the 100
 abstracts the 2026-09 sweep scored), writing ``--test-out``. Needs torch, transformers, safetensors and the
 digest-verified GPT-2 snapshot; it is not part of CI.
 
@@ -26,7 +26,11 @@ sys.path.insert(0, str(REPO / "src"))
 
 from gpt2_text_generation_pipeline import pipeline as gp  # noqa: E402
 from gpt2_text_generation_pipeline import samples  # noqa: E402
-from gpt2_text_generation_pipeline.metrics import paired_delta  # noqa: E402
+from gpt2_text_generation_pipeline.metrics import (  # noqa: E402
+    paired_delta,
+    preregistration_diff,
+    test_look,
+)
 
 LABEL = "CPU build record (tools/reselect_on_validation.py), not a hosted run; pending the hosted run (REL13)"
 
@@ -122,7 +126,26 @@ def main(argv: list[str] | None = None) -> int:
     chosen = reselection["selection"]["config"]
     print({"selected": reselection["selection"]["selected"], "reason": reselection["selection"]["reason"]})
 
-    # Phase 2: the selected configuration, scored once on the fresh test and once on the exposed test.
+    # Phase 2: the selected configuration on the fresh and the exposed test, only under the
+    # pre-registered settings (score-once rule). A run when the record already exists is a
+    # reproduction of the pre-registered evaluation.
+    settings = {
+        "data_source": "sample",
+        "split_seed": samples.SAMPLE_SEED,
+        "dataset_digests": {k: digests[k] for k in ("train", "validation", "test")},
+        "epochs": 2,
+        "batch_size": 8,
+        "learning_rate": chosen["lr"],
+        "trainable_blocks": chosen["trainable_blocks"],
+        "adapt_seed": 0,
+        "max_train_tokens": gp.MAX_TRAIN_TOKENS,
+        "configuration": chosen["name"],
+    }
+    differs = preregistration_diff(settings)
+    if differs:
+        print({"test_look": "not scored (exploratory)", "differs_from_preregistration": differs})
+        return 0
+    look = test_look(differs, int(args.test_out.exists()))
     test, exposed = splits["test"], splits["exposed_test"]
     unigram = pipe.unigram_baseline(train, test)
     pretrained_test = pipe.evaluate(test)
@@ -167,9 +190,8 @@ def main(argv: list[str] | None = None) -> int:
             "date": time.strftime("%Y-%m-%d"),
             "runtime": runtime,
             "selected": reselection["selection"]["selected"],
-            # Score-once rule: this tool runs only the pre-registered settings (a later identical run is a reproduction).
-            "test_look": "pre-registered evaluation (CPU build record)",
-            "differs_from_preregistration": [],
+            "test_look": look,
+            "differs_from_preregistration": differs,
             "config": chosen,
             "dataset_digests": digests,
             "adaptation": {

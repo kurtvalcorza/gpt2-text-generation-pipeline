@@ -44,7 +44,7 @@ SAMPLE_SPLIT = {"train": 300, "validation": 50, "test": 100}
 MIN_RECORDS = 8
 MAX_RECORDS = 20_000
 _ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
-# The never-scored test draw of the 2026-10-17 re-selection (docs/reselection-2026-10-17.md): 100 abstracts
+# The pinned fresh test draw of the 2026-10-17 re-selection (docs/reselection-2026-10-17.md): 100 abstracts
 # of the `test` member outside the SAMPLE_SEED test draw, which the 2026-09 sweep scored and which is kept
 # only as the labelled "exposed development test". Texts that also occur in another member are excluded.
 # Pinned by paper id and digest, so a changed corpus, filter or draw is refused instead of silently scored.
@@ -179,7 +179,7 @@ def build_fresh_test(
     size: int = FRESH_TEST_SIZE,
     verify: bool = True,
 ) -> list[dict[str, Any]]:
-    """The never-scored test draw: `test`-member abstracts that are neither in the SAMPLE_SEED test draw (the
+    """The fresh test draw: `test`-member abstracts that are neither in the SAMPLE_SEED test draw (the
     exposed development test) nor share a text with the `train` or `dev` member, in file order, shuffled with
     `seed`; the first `size`. With `verify`, refused unless the paper ids and digest are the pinned ones."""
     exposed = {r["text"].lower() for r in build_sample_dataset(corpus, seed=SAMPLE_SEED)["test"]}
@@ -187,7 +187,7 @@ def build_fresh_test(
     pool = [r for r in filter_records(corpus["test"]) if r["text"].lower() not in exposed | elsewhere]
     random.Random(seed).shuffle(pool)
     if size > len(pool):
-        raise ValueError(f"requested {size} fresh test records but only {len(pool)} were never scored")
+        raise ValueError(f"requested {size} fresh test records but only {len(pool)} are left")
     out = [{"id": f"fresh-{i:04d}", "text": r["text"], "paper_id": r["paper_id"]} for i, r in enumerate(pool)]
     out = out[:size]
     ids = tuple(r["paper_id"] for r in out)
@@ -234,7 +234,8 @@ def build_tutorial_dataset(
     corpus: Mapping[str, Sequence[Mapping[str, Any]]], *, seed: int = SAMPLE_SEED
 ) -> dict[str, list[dict[str, Any]]]:
     """The tutorial's four sample splits: `train` and `validation` from the seeded draw, `test` = the pinned
-    never-scored draw, and `exposed_test` = the SAMPLE_SEED test draw that the 2026-09 sweep scored (reported
+    fresh draw (scored only under the pre-registered settings), and
+    `exposed_test` = the SAMPLE_SEED test draw that the 2026-09 sweep scored (reported
     once, labelled, for continuity; never used for selection). Paper- and text-disjointness are asserted."""
     drawn = build_sample_dataset(corpus, seed=seed)
     exposed = drawn["test"] if seed == SAMPLE_SEED else build_sample_dataset(corpus, seed=SAMPLE_SEED)["test"]

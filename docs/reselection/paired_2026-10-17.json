@@ -1,0 +1,115 @@
+{
+  "label": "CPU reproduction of the pre-registered evaluation (round 2, 2026-10-17), not a hosted run; nothing was changed in response to the test number",
+  "test_look": "reproduction",
+  "headline_reproduces_build_record": {
+    "grid_curves": true,
+    "pretrained_test": true,
+    "adapted_test": true,
+    "exposed": true,
+    "floor": true
+  },
+  "paired_vs_incumbent_validation": {
+    "C1": {
+      "n": 50,
+      "n_improved": 3,
+      "delta_bits_per_token": {
+        "median": 0.06928167719796884,
+        "q1": 0.045494671079118344,
+        "q3": 0.09357521678671392,
+        "min": -0.03325539962799533,
+        "max": 0.1571084069962203
+      },
+      "token_weighted_delta_bits": 0.06788549085128402,
+      "bootstrap_95ci": [
+        0.056411992699754984,
+        0.07882787814144575
+      ],
+      "n_boot": 2000,
+      "seed": 0,
+      "method": "paired per-record delta; bootstrap resamples records with replacement"
+    },
+    "C2": {
+      "n": 50,
+      "n_improved": 2,
+      "delta_bits_per_token": {
+        "median": 0.1209962731151892,
+        "q1": 0.07495561568628593,
+        "q3": 0.15054105277338464,
+        "min": -0.037662566445607754,
+        "max": 0.25971918237951974
+      },
+      "token_weighted_delta_bits": 0.11034971272438068,
+      "bootstrap_95ci": [
+        0.09194536210154101,
+        0.12775527394307393
+      ],
+      "n_boot": 2000,
+      "seed": 0,
+      "method": "paired per-record delta; bootstrap resamples records with replacement"
+    }
+  },
+  "paired_fresh_test": {
+    "n": 100,
+    "n_improved": 99,
+    "delta_bits_per_token": {
+      "median": -0.20448118448206215,
+      "q1": -0.28478410755947636,
+      "q3": -0.13833844384701757,
+      "min": -0.4922080222566848,
+      "max": 0.0005543709711271007
+    },
+    "token_weighted_delta_bits": -0.20320597334438084,
+    "bootstrap_95ci": [
+      -0.223878749532122,
+      -0.18242605743412285
+    ],
+    "n_boot": 2000,
+    "seed": 0,
+    "method": "paired per-record delta; bootstrap resamples records with replacement"
+  },
+  "paired_exposed_test": {
+    "n": 100,
+    "n_improved": 99,
+    "delta_bits_per_token": {
+      "median": -0.22273939466109904,
+      "q1": -0.2989407218123521,
+      "q3": -0.1396211122652553,
+      "min": -0.4759403352438089,
+      "max": 0.04857791586823405
+    },
+    "token_weighted_delta_bits": -0.2100531737025459,
+    "bootstrap_95ci": [
+      -0.2299378618068852,
+      -0.18957052629019577
+    ],
+    "n_boot": 2000,
+    "seed": 0,
+    "method": "paired per-record delta; bootstrap resamples records with replacement"
+  },
+  "unigram_add_0.1_fresh_test": {
+    "perplexity": 1204.724032777001
+  },
+  "era_probe_fresh_test": {
+    "id_len_9": {
+      "n": 41,
+      "n_tokens": 9360,
+      "pretrained": 36.63033068779484,
+      "adapted": 32.02558161024604
+    },
+    "id_len_other": {
+      "n": 59,
+      "n_tokens": 12404,
+      "pretrained": 41.69070333048573,
+      "adapted": 36.03584221954528
+    }
+  },
+  "record_perplexity_true_median": {
+    "fresh_pretrained": 39.68478679559119,
+    "fresh_adapted": 33.16011368451281
+  },
+  "seconds": {
+    "C0": 584.3,
+    "C1": 386.1,
+    "C2": 409.5
+  }
+}

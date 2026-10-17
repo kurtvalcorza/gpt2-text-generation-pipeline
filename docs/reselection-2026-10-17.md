@@ -4,7 +4,7 @@ Review finding T31-1 (row 31, tutorial triage 2026-10-15) found that the tutoria
 (`TRAINABLE_BLOCKS = 4`, `LEARNING_RATE = 1e-4`) were picked from a three-configuration sweep whose recorded
 figures were **test** perplexities (PR #3: 2 blocks @ 5e-5 → 37.39, 2 blocks @ 1e-4 → 36.32, 4 blocks @ 1e-4 →
 34.73 on the 100 test abstracts). The owner ruled (2026-10-17): re-select on the validation split with the
-grid below, then score the chosen configuration once on a fresh, never-scored test draw.
+grid below, then score the chosen configuration on a fresh test draw that no earlier selection or tuning step had read.
 
 ## 1. Pre-registration
 
@@ -43,7 +43,8 @@ tutorial's Section 7 call the same functions.
 
 ### Test sets
 
-- **Fresh test (scored once):** 100 abstracts drawn from the `test` member's never-scored remainder. The
+- **Fresh test (scored only under the pre-registered settings):** 100 abstracts drawn from the `test` member's
+  remainder that no earlier selection step had read. The
   remainder is the 618 filtered `test` abstracts minus the 100 of the `SPLIT_SEED = 42` test draw (518), minus
   the 3 whose text also occurs in the `train` or `dev` member (515). They are taken in file order, shuffled with
   `random.Random(20261017)`, and the first 100 are kept. The draw is pinned in `samples.py` by its 100 paper ids
@@ -81,7 +82,8 @@ Records: `docs/reselection/validation_selection_2026-10-17.json` (written before
 Grid wall time 1,028 s. **Selected on validation: C0** (no challenger beat C0 by 2 % or more; the incumbent stays).
 The defaults (`TRAINABLE_BLOCKS = 4`, `LEARNING_RATE = 1e-4`) are unchanged; they are now the configuration selected
 on validation by the rule above rather than the one chosen from test scores. The selected configuration was then
-trained once more (346 s; its validation curve repeated the grid run exactly) and scored once:
+trained once more (346 s; its validation curve repeated the grid run exactly) and scored under the pre-registered
+settings (later identical runs are reproductions, listed in `docs/release-verification.md`):
 
 | Split | Records / tokens | Unigram floor | Pretrained | Adapted (C0) | Δ perplexity | Δ bits/token |
 |---|---|---|---|---|---|---|

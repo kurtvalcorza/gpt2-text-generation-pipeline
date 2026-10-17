@@ -22,7 +22,7 @@ predictions, worked answers, a change-one-thing activity, troubleshooting, gloss
 
 Review fixes (row 31, 2026-10-17, T31-1..T31-8): the adaptation defaults are re-selected on validation by a
 pre-registered three-configuration grid (docs/reselection-2026-10-17.md) and the selected configuration is scored
-once on a pinned never-scored test draw, with the old test abstracts reported once as the exposed development
+once on a pinned test draw that no selection step reads, with the old test abstracts reported once as the exposed development
 test; BYOD refusals are messages, not tracebacks; the notebook declares spec 2.5, its kind and the use notice;
 run-status wording points at docs/release-verification.md.
 
@@ -55,7 +55,7 @@ os.makedirs('outputs', exist_ok=True)
 # A new dataset needs a model that was trained on nothing else: drop any adaptation an earlier run made.
 pipe.reset_to_pretrained()
 # A new dataset also ends the active run: its splits and results are dropped, so a refusal leaves nothing stale.
-for stale in ('splits', 'train_records', 'val_records', 'test_records', 'exposed_test_records', 'dataset_manifests', 'disjoint', 'reselection', 'selected_config', 'adapt_result', 'frozen_test', 'frozen_val', 'frozen_exposed', 'adapted_test', 'adapted_val'):
+for stale in ('splits', 'train_records', 'val_records', 'test_records', 'exposed_test_records', 'dataset_manifests', 'disjoint', 'reselection', 'selected_config', 'adapt_result', 'frozen_test', 'frozen_val', 'frozen_exposed', 'adapted_test', 'adapted_val', 'frozen_reference', 'preregistered', 'differs'):
     globals().pop(stale, None)
 if USE_BYOD:
     # Expected refusals (no file, an empty upload, a file that breaks the contract) print one message and stop;
@@ -88,7 +88,7 @@ if USE_BYOD:
 else:
     corpus = read_corpus(fetch_corpus(cache_dir='weights/scitldr'))
     raw_papers = {name: len(part) for name, part in corpus.items()}
-    # train and validation from the seeded draw, test = the pinned never-scored draw, exposed_test = the old test draw
+    # train and validation from the seeded draw, test = the pinned draw no selection step reads, exposed_test = the old test draw
     splits = build_tutorial_dataset(corpus, seed=SPLIT_SEED)
     data_source = f'{CORPUS_NAME} ({CORPUS_RELEASE}; {CORPUS_LICENSE})'
 train_records, val_records, test_records = splits['train'], splits['validation'], splits['test']
@@ -102,7 +102,7 @@ print({'data_source': data_source, 'raw_papers': raw_papers, 'splits': disjoint,
 for name, manifest in dataset_manifests.items():
     print({name: {'n': manifest['n_records'], 'unique_texts': manifest['unique_texts'], 'text_chars': manifest['text_chars'], 'total_chars': manifest['total_chars'], 'digest': manifest['digest'][:16] + '...'}})
 if not USE_BYOD:
-    print({'test': 'pinned never-scored draw', 'digest_is_pinned': dataset_manifests['test']['digest'] == FRESH_TEST_DIGEST, 'exposed_test': 'the 100 abstracts the 2026-09 sweep scored; reported once in Section 8, chooses nothing'})
+    print({'test': 'pinned draw that no selection or tuning step reads', 'digest_is_pinned': dataset_manifests['test']['digest'] == FRESH_TEST_DIGEST, 'exposed_test': 'the 100 abstracts the 2026-09 sweep scored; reported once in Section 8, chooses nothing'})
 print({'example': {'id': train_records[0]['id'], 'text': train_records[0]['text'][:200] + '...'}})
 
 probes = {
@@ -120,7 +120,8 @@ for name, probe in probes.items():
 )
 
 _GENERATE_CODE = _py(
-    """import time
+    """import math
+import time
 
 GREEDY_MAX_NEW_TOKENS = 32  # @param {type:"integer"}
 SAMPLE_MAX_NEW_TOKENS = 32  # @param {type:"integer"}
@@ -135,10 +136,10 @@ def opening(record, chars=120):
     head = record['text'][:chars]
     return head.rsplit(' ', 1)[0] if ' ' in head else head
 
-prompt = opening(test_records[0])
+prompt = opening(val_records[0])
 ceilings = {'CONTEXT_LENGTH': CONTEXT_LENGTH, 'MAX_PROMPT_TOKENS': MAX_PROMPT_TOKENS, 'MAX_NEW_TOKENS': MAX_NEW_TOKENS, 'DEFAULT_MAX_NEW_TOKENS': DEFAULT_MAX_NEW_TOKENS, 'MAX_TEXT_CHARS': MAX_TEXT_CHARS, 'VOCAB_SIZE': VOCAB_SIZE, 'EOS_TOKEN_ID': EOS_TOKEN_ID, 'PAD_TOKEN_ID': PAD_TOKEN_ID, 'MAX_TRAIN_TOKENS': MAX_TRAIN_TOKENS}
 print(ceilings)
-input_manifest = validate_inputs(prompt, max_new_tokens=GREEDY_MAX_NEW_TOKENS, names=['test-opening'])
+input_manifest = validate_inputs(prompt, max_new_tokens=GREEDY_MAX_NEW_TOKENS, names=['validation-opening'])
 sampling_settings = validate_settings(SAMPLE_MAX_NEW_TOKENS, True, TEMPERATURE, TOP_P, SEED)
 input_manifest['sampling_settings'] = sampling_settings
 try:
@@ -184,20 +185,29 @@ _FLOOR_CODE = _py(
 pipe.reset_to_pretrained()
 if pipe.adapter is not None:
     raise RuntimeError('the pipeline still holds an adaptation, so its numbers are not the pretrained model; run this cell again')
+# Score-once rule: the pinned test split is read only under the pre-registered data settings (the sample with
+# SPLIT_SEED = 42). Your own data or another draw is exploratory, and every number here is then on validation.
+data_preregistered = not USE_BYOD and SPLIT_SEED == 42
+reference_records = test_records if data_preregistered else val_records
+reference_split = 'test' if data_preregistered else 'validation (exploratory data settings: the test split is not read)'
+if not data_preregistered:
+    print('Exploratory data settings (your own data, or SPLIT_SEED other than 42): Sections 6 and 8 read the validation split; the test split is not scored.')
 t0 = time.perf_counter()
-unigram = pipe.unigram_baseline(train_records, test_records)
-print({'unigram_floor': {'perplexity': round(unigram['perplexity'], 1), 'bits_per_token': round(unigram['bits_per_token'], 3), 'n_tokens': unigram['n_tokens'], 'baseline': unigram['baseline']}, 'seconds': round(time.perf_counter() - t0, 1)})
+unigram = pipe.unigram_baseline(train_records, reference_records)
+unigram_light = pipe.unigram_baseline(train_records, reference_records, alpha=0.1)
+print({'unigram_floor': {'split': reference_split, 'perplexity': round(unigram['perplexity'], 1), 'bits_per_token': round(unigram['bits_per_token'], 3), 'n_tokens': unigram['n_tokens'], 'baseline': unigram['baseline']}, 'unigram_add_0.1_reference': round(unigram_light['perplexity'], 1), 'seconds': round(time.perf_counter() - t0, 1)})
 t0 = time.perf_counter()
-frozen_test = pipe.evaluate(test_records)
+frozen_test = pipe.evaluate(test_records) if data_preregistered else None
 frozen_val = pipe.evaluate(val_records)
-# Scored once here, on the pretrained model, and printed in Section 8 beside the adapted model; it chooses nothing.
+frozen_reference = frozen_test if data_preregistered else frozen_val
+# The exposed development test chooses nothing; it is scored here on the pretrained model and printed in Section 8.
 frozen_exposed = pipe.evaluate(exposed_test_records) if exposed_test_records else None
-print({'pretrained_model_test': {'perplexity': round(frozen_test['perplexity'], 2), 'bits_per_token': round(frozen_test['bits_per_token'], 3), 'n_records': frozen_test['n_records'], 'n_tokens': frozen_test['n_tokens'], 'record_perplexity': {k: round(v, 1) for k, v in frozen_test['record_perplexity'].items()}, 'verdict': frozen_test['verdict'], 'adapted': frozen_test['adapted']}, 'validation_perplexity': round(frozen_val['perplexity'], 2), 'seconds': round(time.perf_counter() - t0, 1)})
-print({'definitions': frozen_test['definitions']})
-if frozen_test['n_tokens'] != unigram['n_tokens']:
+print({'pretrained_model': {'split': reference_split, 'perplexity': round(frozen_reference['perplexity'], 2), 'bits_per_token': round(frozen_reference['bits_per_token'], 3), 'n_records': frozen_reference['n_records'], 'n_tokens': frozen_reference['n_tokens'], 'record_perplexity': {k: round(v, 1) for k, v in frozen_reference['record_perplexity'].items()}, 'verdict': frozen_reference['verdict'], 'adapted': frozen_reference['adapted']}, 'validation_perplexity': round(frozen_val['perplexity'], 2), 'seconds': round(time.perf_counter() - t0, 1)})
+print({'definitions': frozen_reference['definitions']})
+if frozen_reference['n_tokens'] != unigram['n_tokens']:
     raise RuntimeError('the floor and the model were scored on different tokens, so they cannot be compared; run Section 4 again')
 # A recorded outcome, not an assertion: on your own corpus the pretrained model may not beat the floor.
-floor_outcome = 'pretrained model below the unigram floor' if frozen_test['perplexity'] < unigram['perplexity'] else 'pretrained model NOT below the unigram floor: it does not use context on this corpus'
+floor_outcome = 'pretrained model below the unigram floor' if frozen_reference['perplexity'] < unigram['perplexity'] else 'pretrained model NOT below the unigram floor: it does not use context on this corpus'
 print({'floor_outcome': floor_outcome})"""
 )
 
@@ -228,9 +238,14 @@ if reselection is not None:
     for row in reselection['grid']:
         print({'config': row['name'], 'trainable_blocks': row['trainable_blocks'], 'learning_rate': row['lr'], 'best_epoch': row['best_epoch'], 'best_val_perplexity': round(row['best_val_perplexity'], 2), 'seconds': row['seconds']})
     print({'selected': reselection['selection']['selected'], 'reason': reselection['selection']['reason'], 'improvement_vs_C0': reselection['selection']['improvement_vs_incumbent']})
-# The selected configuration: on the sample, the pre-registered build record's choice; on your data, the grid's.
-selected_config = reselection['selection']['config'] if USE_BYOD and reselection is not None else recorded
-if not USE_BYOD and reselection is not None:
+# The selected configuration: on the default sample draw (SPLIT_SEED = 42) the pre-registered build record's choice;
+# on another draw or on your data, the replay's (the 2 % margin was justified on SciTLDR only).
+replayed = reselection is not None and (USE_BYOD or SPLIT_SEED != 42)
+selected_config = reselection['selection']['config'] if replayed else recorded
+if reselection is not None:
+    for name, pair in reselection['paired_vs_incumbent_validation'].items():
+        print({'paired_validation_vs_C0': name, 'token_weighted_delta_bits': round(pair['token_weighted_delta_bits'], 3), 'bootstrap_95ci': [round(x, 3) for x in pair['bootstrap_95ci']], 'records_worse_than_C0': pair['n'] - pair['n_improved'], 'of': pair['n']})
+if not replayed and reselection is not None:
     print({'reproduces_recorded_selection': reselection['selection']['selected'] == RECORDED_SELECTION, 'recorded_selection': RECORDED_SELECTION})
 print({'selected_configuration': selected_config['name'], 'trainable_blocks': selected_config['trainable_blocks'], 'learning_rate': selected_config['lr']})"""
 )
@@ -241,6 +256,12 @@ LEARNING_RATE = 1e-4  # @param {type:"number"}
 BATCH_SIZE = 8  # @param {type:"integer"}
 TRAINABLE_BLOCKS = 4  # @param {type:"integer"}
 ADAPT_SEED = 0  # @param {type:"integer"}
+
+# The form defaults are the pre-registered selection (C0). If the replay selected another configuration (your data,
+# or a SPLIT_SEED other than 42) and these two fields are untouched, the selected configuration is trained.
+if (TRAINABLE_BLOCKS, LEARNING_RATE) == (4, 1e-4) and (selected_config['trainable_blocks'], selected_config['lr']) != (4, 1e-4):
+    TRAINABLE_BLOCKS, LEARNING_RATE = selected_config['trainable_blocks'], selected_config['lr']
+    print({'training_the_selected_configuration': selected_config['name'], 'TRAINABLE_BLOCKS': TRAINABLE_BLOCKS, 'LEARNING_RATE': LEARNING_RATE})
 
 def report(entry):
     row = {'epoch': entry['epoch'], 'train_loss': None if entry['train_loss'] is None else round(entry['train_loss'], 4)}
@@ -262,23 +283,30 @@ start_check = None if epoch0 is None else abs(epoch0['perplexity'] - frozen_val[
 if start_check is not None and start_check > 1e-4:
     raise RuntimeError(f'epoch 0 ({epoch0["perplexity"]:.3f}) is not the pretrained model of Section 6 ({frozen_val["perplexity"]:.3f}); run Section 6, then this cell again')
 print({'starts_from': 'pretrained weights', 'epoch0_vs_section6_relative_difference': start_check, 'trainable_parameters': adapt_result['n_trainable'], 'total_parameters': adapt_result['n_total'], 'train_tokens': adapt_result['n_train_tokens'], 'best_epoch': adapt_result['best_epoch'], 'selection': adapt_result['selection'], 'seed': adapt_result['seed'], 'seconds': adapt_seconds})
-# The test split is scored only for the selected configuration (Section 4 protocol); other settings are read on validation.
-is_selected_run = (TRAINABLE_BLOCKS, LEARNING_RATE, EPOCHS, BATCH_SIZE, ADAPT_SEED) == (selected_config['trainable_blocks'], selected_config['lr'], 2, 8, 0)
-grid_row = next((r for r in reselection['grid'] if r['name'] == selected_config['name']), None) if reselection is not None and is_selected_run else None
+# Score-once rule: the test split is scored only if EVERY pre-registered setting holds (docs/reselection-2026-10-17.md).
+settings = {'data_source': 'BYOD' if USE_BYOD else 'sample', 'split_seed': SPLIT_SEED, 'dataset_digests': {k: dataset_manifests[k]['digest'] for k in ('train', 'validation', 'test')}, 'epochs': EPOCHS, 'batch_size': BATCH_SIZE, 'learning_rate': LEARNING_RATE, 'trainable_blocks': TRAINABLE_BLOCKS, 'adapt_seed': ADAPT_SEED, 'max_train_tokens': MAX_TRAIN_TOKENS, 'configuration': selected_config['name']}
+differs = preregistration_diff(settings)
+preregistered = not differs
+grid_row = next((r for r in reselection['grid'] if r['name'] == selected_config['name']), None) if reselection is not None and preregistered else None
 curve = [None if h['val'] is None else h['val']['perplexity'] for h in adapt_result['history']]
-print({'selected_configuration': selected_config['name'], 'these_are_the_selected_settings': is_selected_run, 'repeats_the_grid_run': None if grid_row is None else curve == grid_row['val_perplexity_by_epoch']})
-if not is_selected_run:
-    print(f"Section 8 reads these settings on validation only. The test split is scored for the selected configuration ({selected_config['name']}: TRAINABLE_BLOCKS = {selected_config['trainable_blocks']}, LEARNING_RATE = {selected_config['lr']}, EPOCHS = 2, BATCH_SIZE = 8, ADAPT_SEED = 0).")"""
+print({'preregistered': preregistered, 'differs_from_preregistration': differs, 'repeats_the_grid_run': None if grid_row is None else curve == grid_row['val_perplexity_by_epoch']})
+if not preregistered:
+    print(f'Exploratory run (differs in {differs}): Section 8 compares on validation only, the test split is not scored, and its outputs go to separate _exploratory_ files.')"""
 )
 
 _EVAL_CODE = _py(
     """adapted_val = pipe.evaluate(val_records)
-# Scored once, for the selected configuration only (Section 4 protocol); other settings are read on validation.
-adapted_test = pipe.evaluate(test_records) if is_selected_run else None
-held_out = 'test' if adapted_test is not None else 'validation (test held out: these are not the selected settings)'
+# Score-once rule: the test split is read only under the pre-registered settings (Section 7 printed which differ).
+earlier = [r for r in globals().get('run_history', [])]
+look = test_look(differs, sum(r.get('test_look') in ('pre-registered evaluation', 'reproduction') for r in earlier))
+run_tag = '' if preregistered else f"_exploratory_{sum(r.get('test_look') == 'not scored (exploratory)' for r in earlier) + 1}"
+adapted_test = pipe.evaluate(test_records) if preregistered else None
+held_out = 'test' if adapted_test is not None else 'validation (exploratory: the test split is not scored)'
+floor_matches = adapted_test is not None or not data_preregistered
+print({'test_look': look, 'differs_from_preregistration': differs})
 before_m, after_m = (frozen_test, adapted_test) if adapted_test is not None else (frozen_val, adapted_val)
 comparison = {
-    metric: {'unigram_floor': round(unigram[metric], 3) if adapted_test is not None else None, 'pretrained': round(before_m[metric], 3), 'adapted': round(after_m[metric], 3)}
+    metric: {'unigram_floor': round(unigram[metric], 3) if floor_matches else None, 'pretrained': round(before_m[metric], 3), 'adapted': round(after_m[metric], 3)}
     for metric in ('perplexity', 'bits_per_token', 'mean_nll')
 }
 comparison['split'] = held_out
@@ -286,10 +314,22 @@ comparison['record_perplexity'] = {'pretrained': {k: round(v, 1) for k, v in bef
 comparison['delta_vs_pretrained'] = {metric: round(after_m[metric] - before_m[metric], 3) for metric in ('perplexity', 'bits_per_token')}
 for metric, row in comparison.items():
     print({metric: row})
+# Paired: each abstract compared with itself, so the per-record change is read directly (seed 0 bootstrap).
+paired = paired_delta(before_m['records'], after_m['records'])
+comparison['paired_per_record'] = paired
+print({'paired_per_record': {'split': held_out, 'n_improved': paired['n_improved'], 'of': paired['n'], 'delta_bits_per_token_median': round(paired['delta_bits_per_token']['median'], 3), 'quartiles': [round(paired['delta_bits_per_token']['q1'], 3), round(paired['delta_bits_per_token']['q3'], 3)], 'token_weighted_delta_bits': round(paired['token_weighted_delta_bits'], 3), 'bootstrap_95ci': [round(x, 3) for x in paired['bootstrap_95ci']]}})
+if adapted_test is not None and not USE_BYOD:
+    # A heuristic contamination probe (Section 6): 9-character OpenReview ids are ICLR-2018-era papers.
+    for label, keep in (('id_len_9', True), ('id_len_other', False)):
+        ids = [r['id'] for r in test_records if (len(r['paper_id']) == 9) == keep]
+        tokens = sum(frozen_test['records'][i]['n_tokens'] for i in ids)
+        ppl = [math.exp(sum(scored['records'][i]['mean_nll'] * scored['records'][i]['n_tokens'] for i in ids) / tokens) for scored in (frozen_test, adapted_test)]
+        print({'era_probe': label, 'n': len(ids), 'pretrained': round(ppl[0], 2), 'adapted': round(ppl[1], 2)})
 exposed_report = None
 if adapted_test is not None and frozen_exposed is not None:
     adapted_exposed = pipe.evaluate(exposed_test_records)
-    exposed_report = {'label': 'exposed development test: the 100 abstracts the 2026-09 sweep scored when the earlier defaults were chosen; reported once for continuity, not independent evidence', 'n_tokens': adapted_exposed['n_tokens'], 'pretrained': round(frozen_exposed['perplexity'], 2), 'adapted': round(adapted_exposed['perplexity'], 2), 'delta': round(adapted_exposed['perplexity'] - frozen_exposed['perplexity'], 2)}
+    exposed_paired = paired_delta(frozen_exposed['records'], adapted_exposed['records'])
+    exposed_report = {'label': 'exposed development test: the 100 abstracts the 2026-09 sweep scored when the earlier defaults were chosen; reported once for continuity, not independent evidence', 'n_tokens': adapted_exposed['n_tokens'], 'pretrained': round(frozen_exposed['perplexity'], 2), 'adapted': round(adapted_exposed['perplexity'], 2), 'delta': round(adapted_exposed['perplexity'] - frozen_exposed['perplexity'], 2), 'n_improved': exposed_paired['n_improved'], 'bootstrap_95ci_bits': [round(x, 3) for x in exposed_paired['bootstrap_95ci']]}
     print({'exposed_development_test': exposed_report})
 # A recorded outcome, not an assertion: an adaptation that does not help is a result to read, not a crash.
 adaptation_outcome = 'lowered held-out perplexity' if after_m['perplexity'] < before_m['perplexity'] else 'did NOT lower held-out perplexity'
@@ -299,7 +339,9 @@ evaluation_report_payload = {
     'data_source': data_source,
     'dataset_digests': {name: manifest['digest'] for name, manifest in dataset_manifests.items()},
     'splits': disjoint,
-    'evidence': 'one seeded split of one corpus, no dispersion estimate; the configuration was re-selected on validation by a pre-registered rule (docs/reselection-2026-10-17.md) and the never-scored test split is scored once, for the selected configuration only',
+    'test_look': look,
+    'differs_from_preregistration': differs,
+    'evidence': 'one seeded split of one corpus; the configuration was re-selected on validation by a pre-registered rule (docs/reselection-2026-10-17.md) and the pinned test split, which no selection step reads, is scored only under the pre-registered settings (the recorded evaluation and its reproductions are listed in docs/release-verification.md); paired bootstrap interval over records, no seed-to-seed estimate',
     'selected_configuration': selected_config,
     'reselection': None if reselection is None else {k: v for k, v in reselection.items() if k != 'data_key'},
     'baselines': {'unigram_floor': unigram},
@@ -315,13 +357,13 @@ evaluation_report_payload = {
     'history': adapt_result['history'],
     'adaptation_seconds': adapt_seconds,
 }
-with open('outputs/@STEM@_evaluation_report.json', 'w', encoding='utf-8') as f:
+with open(f'outputs/@STEM@_evaluation_report{run_tag}.json', 'w', encoding='utf-8') as f:
     json.dump(evaluation_report_payload, f, indent=2, ensure_ascii=False)
-print({'report': 'outputs/@STEM@_evaluation_report.json'})
+print({'report': f'outputs/@STEM@_evaluation_report{run_tag}.json'})
 
 # One row per Section 7 training run in this session, so a changed setting is read next to the default run (Section 10).
 run_history = globals().get('run_history', [])
-run_history.append({'run': len(run_history) + 1, 'data': 'BYOD' if USE_BYOD else 'sample', 'trainable_blocks': TRAINABLE_BLOCKS, 'epochs': EPOCHS, 'learning_rate': LEARNING_RATE, 'trainable_parameters': adapt_result['n_trainable'], 'best_epoch': adapt_result['best_epoch'], 'pretrained_val_perplexity': round(frozen_val['perplexity'], 2), 'adapted_val_perplexity': round(adapted_val['perplexity'], 2), 'delta_val_perplexity': round(adapted_val['perplexity'] - frozen_val['perplexity'], 2), 'test_perplexity': 'held out' if adapted_test is None else f"{frozen_test['perplexity']:.2f} -> {adapted_test['perplexity']:.2f}"})"""
+run_history.append({'run': len(run_history) + 1, 'data': 'BYOD' if USE_BYOD else 'sample', 'trainable_blocks': TRAINABLE_BLOCKS, 'epochs': EPOCHS, 'learning_rate': LEARNING_RATE, 'trainable_parameters': adapt_result['n_trainable'], 'best_epoch': adapt_result['best_epoch'], 'pretrained_val_perplexity': round(frozen_val['perplexity'], 2), 'adapted_val_perplexity': round(adapted_val['perplexity'], 2), 'delta_val_perplexity': round(adapted_val['perplexity'] - frozen_val['perplexity'], 2), 'test_look': look, 'test_perplexity': 'not scored (exploratory)' if adapted_test is None else f"{frozen_test['perplexity']:.2f} -> {adapted_test['perplexity']:.2f}", 'val_records': adapted_val['records']})"""
 )
 
 _EXPORT_CODE = _py(
@@ -339,12 +381,12 @@ for record in unseen_records:
     print({'actual': rows[-1]['actual_continuation']})
 single_report = evaluation_report(pipe.generate(opening(unseen_records[0]), max_new_tokens=GREEDY_MAX_NEW_TOKENS), sample_kind='one unseen SciTLDR abstract opening' if not USE_BYOD else 'one BYOD test record')
 print({'single_prompt_report_verdict': single_report['verdict'], 'adapted_differs_from_pretrained': sum(r['pretrained_completion'] != r['adapted_completion'] for r in rows), 'of': len(rows)})
-with open('outputs/@STEM@_completions.csv', 'w', encoding='utf-8', newline='') as handle:
+with open(f'outputs/@STEM@_completions{run_tag}.csv', 'w', encoding='utf-8', newline='') as handle:
     writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
     writer.writeheader()
     writer.writerows(rows)
 
-artifact_dir = Path('outputs/@STEM@_adapter')
+artifact_dir = Path(f'outputs/@STEM@_adapter{run_tag}')
 shutil.rmtree(artifact_dir, ignore_errors=True)
 pipe.save_artifact(artifact_dir, metadata={'tutorial': '@STEM@', 'data_source': data_source})
 artifact_manifest = json.loads((artifact_dir / 'manifest.json').read_text(encoding='utf-8'))
@@ -377,12 +419,14 @@ result_payload = {
     'single_prompt_report': single_report,
     'artifact': {'dir': str(artifact_dir), 'sha256': artifact_manifest['files'][0]['sha256'], 'bytes': artifact_manifest['files'][0]['bytes'], 'tensors': len(artifact_manifest['tensors']), 'trainable_blocks': artifact_manifest['adapter']['trainable_blocks']},
     'reload_parity': parity,
-    'evaluation_protocol': {'preregistration': 'docs/reselection-2026-10-17.md', 'selected_configuration': selected_config, 'test_scored': adapted_test is not None, 'test_digest': dataset_manifests['test']['digest']},
+    'test_look': look,
+    'differs_from_preregistration': differs,
+    'evaluation_protocol': {'preregistration': 'docs/reselection-2026-10-17.md', 'selected_configuration': selected_config, 'test_look': look, 'test_digest': dataset_manifests['test']['digest']},
     'exposed_development_test': exposed_report,
     'run_history': run_history,
     'runtime': {'python': platform.python_version(), 'torch': torch.__version__, 'transformers': transformers.__version__, 'device': pipe.device, 'dtype': 'float32', 'source': pipe.source},
 }
-with open('outputs/@STEM@_result.json', 'w', encoding='utf-8') as handle:
+with open(f'outputs/@STEM@_result{run_tag}.json', 'w', encoding='utf-8') as handle:
     json.dump(result_payload, handle, indent=2, ensure_ascii=False)
 # Every export of this run describes one model: the report, the adapter and this file.
 assert evaluation_report_payload['adaptation']['trainable_blocks'] == artifact_manifest['adapter']['trainable_blocks'] == TRAINABLE_BLOCKS, 'the report, the adapter and the form disagree on TRAINABLE_BLOCKS: select Section 7 and choose Run after'
@@ -395,6 +439,10 @@ columns = ['run', 'data', 'trainable_blocks', 'epochs', 'learning_rate', 'traina
 print(' | '.join(columns))
 for row in run_history:
     print(' | '.join(str(row.get(column)) for column in columns))
+# Settings are compared pairwise: the same validation abstracts, scored after each run (bootstrap over records, seed 0).
+for row in run_history[1:]:
+    pair = paired_delta(run_history[0]['val_records'], row['val_records'])
+    print({'paired_validation': f"run {row['run']} vs run 1", 'token_weighted_delta_bits': round(pair['token_weighted_delta_bits'], 3), 'bootstrap_95ci': [round(x, 3) for x in pair['bootstrap_95ci']], 'records_better_in_this_run': pair['n_improved'], 'of': pair['n']})
 if len(run_history) == 1:
     print('One run so far. Set TRAINABLE_BLOCKS = 1 in the Section 7 training cell, select that cell and choose Runtime > Run after; this table then shows both runs.')"""
 )
@@ -430,11 +478,11 @@ TEMPLATE = {
         "kernel's own packages are left alone, so no restart is needed), stages and digest-verifies the pinned GPT-2 "
         "snapshot (safetensors, 548 MB), fetches the three digest-pinned SciTLDR-A files from the project repository "
         "(5.5 MB, no credential), reads the paper abstracts and draws 300 training and 50 validation documents and the "
-        "pinned never-scored 100-document test draw from the release's own paper-disjoint members, generates greedy and seeded-sampled continuations of an "
+        "pinned 100-document test draw that no selection step reads, from the release's own paper-disjoint members, generates greedy and seeded-sampled continuations of an "
         "unseen abstract's opening through the inference contract with an input manifest and a rejection probe, scores "
         "the pretrained model on the test abstracts by held-out perplexity beside the add-one unigram floor, replays "
         "the pre-registered three-configuration re-selection on the validation split, runs a bounded fine-tuning of the "
-        "selected configuration with validation-perplexity epoch selection, scores the test split once for it, continues the same unseen abstracts with the adapted model, exports the adapter as "
+        "selected configuration with validation-perplexity epoch selection, scores the test split for it under the pre-registered settings, continues the same unseen abstracts with the adapted model, exports the adapter as "
         "safetensors with a manifest, and reloads that artifact into a fresh pipeline to verify parity. The default path "
         "needs no repository clone, no DIMER worker or service, no credential, no upload dialog and no configuration edit "
         "(NOTEBOOK_SPEC 2.5 §5). Every hosted run of every notebook version, with its "
@@ -451,7 +499,8 @@ TEMPLATE = {
         "document — through the upload dialog on Colab, or as a path in `BYOD_PATH` on any runtime. Section 4 first "
         "returns the model to its pretrained weights, so your corpus passes through the same validation, seeded "
         "text-disjoint split, unigram floor, pretrained scoring, re-selection grid, fine-tuning, held-out evaluation, generation, artifact "
-        "export and reload-parity cells as the SciTLDR sample, and the adapter it exports was trained on your corpus "
+        "export and reload-parity cells as the SciTLDR sample (as an **exploratory** run: Sections 6 and 8 read your "
+        "validation split and your test split is not scored), and the adapter it exports was trained on your corpus "
         "only. The expected schema, the minimum size (12 unique records) and the ceilings are stated in the "
         "Prerequisites and in Section 4, and uploaded files stay inside this runtime. BYOD is optional and never part of "
         "the default path."
@@ -568,10 +617,10 @@ TEMPLATE = {
                 "left unread. `build_tutorial_dataset` keeps abstracts of 200..2,400 characters, drops repeated texts, and "
                 "draws 300 training documents from the `train` member and 50 validation documents from `dev` by a seeded "
                 "shuffle — the release's own paper-disjoint partition. The **test** split is 100 abstracts of the `test` "
-                "member that no earlier run scored, pinned by paper id and digest (`FRESH_TEST_DIGEST`); the 100 `test` "
+                "member that no recorded selection or tuning step has read, pinned by paper id and digest (`FRESH_TEST_DIGEST`); the 100 `test` "
                 "abstracts earlier versions scored are kept apart as the **exposed development test**. `validate_dataset` "
                 "then checks every record against the contract, `check_split_disjoint` and `check_paper_disjoint` assert "
-                "that no text and no paper appears in two splits, and the training split is written to `outputs/{stem}_train.csv` in the shape BYOD expects. The "
+                "that no text and no paper appears in two splits, `check_near_duplicates` refuses abstracts that share 50 % or more of their word 8-grams across splits, and the training split is written to `outputs/{stem}_train.csv` in the shape BYOD expects. The "
                 "cell first calls `pipe.reset_to_pretrained()`: a new dataset needs a model trained on nothing else, so "
                 "any adaptation an earlier run made is undone.\n\n"
                 "With `USE_BYOD = True`, your file (upload dialog on Colab, or `BYOD_PATH` on any runtime) goes through "
@@ -587,9 +636,18 @@ TEMPLATE = {
                 "validation, batch 8, AdamW weight decay 0.01, clipping 1.0, `ADAPT_SEED = 0`, 512 training tokens, "
                 "float32); (2) a configuration's score is its best-epoch validation perplexity, and a challenger replaces "
                 "C0 only if it is at least 2 % better, with ties going to the smaller configuration; (3) the adapted model "
-                "of the selected configuration is scored **once** on the never-scored test split (Section 8), next to the "
-                "pretrained model on the same records (Section 6); (4) the old 100 abstracts are reported once, labelled "
-                "as the exposed development test, and choose nothing.\n\n"
+                "of the selected configuration is scored on the pinned test split (Section 8), next to the pretrained model on the "
+                "same records (Section 6), **only under the exact pre-registered settings**: the sample with `SPLIT_SEED = "
+                "42`, C0, and every fixed setting above. Any change (a form field, your own data, a smaller batch for "
+                "memory) makes the run **exploratory**: it is compared on validation only, never scores the test split, "
+                "and writes separate `_exploratory_<n>` output files. A later run with identical settings is a "
+                "**reproduction** of the pre-registered evaluation; the recorded evaluation and its reproductions are "
+                "listed in `docs/release-verification.md`; (4) the old 100 abstracts are "
+                "reported once, labelled as the exposed development test, and choose nothing. Two limits of this design: "
+                "the 2 % margin is a **predeclared practical tolerance**, not a noise threshold (nothing here measures "
+                "seed-to-seed variation); and the grid holds only smaller or gentler challengers, while C0, the incumbent "
+                "the margin protects, was first chosen in 2026-09 with the old test scores in view. The clean evidence is "
+                "the fresh test split, not the re-selection.\n\n"
                 "**Predict before running:** the sample's training, validation and test documents come from different "
                 "papers. Why does that matter more for a language model than for, say, an image classifier?"
             ),
@@ -642,7 +700,7 @@ TEMPLATE = {
                 "record's first is predicted from the true tokens before it, the per-token negative log-likelihoods are "
                 "averaged token-weighted and exponentiated (`perplexity`) or divided by ln 2 (`bits_per_token`); "
                 "`record_perplexity` gives the spread across documents. Records over `MAX_PROMPT_TOKENS` are refused, "
-                "never truncated. The validation split is scored too, so Section 7 can check that its epoch 0 is this "
+                "never truncated. Under exploratory data settings (your own data, or a `SPLIT_SEED` other than 42) the cell reads the validation split instead of the test split and says so. The validation split is scored too, so Section 7 can check that its epoch 0 is this "
                 "model. The cell first returns the model to its pretrained weights and refuses to label anything else "
                 "pretrained.\n\n"
                 "**Pretraining overlap.** GPT-2 was trained on WebText, pages linked from Reddit up to December 2017. Some "
@@ -655,6 +713,11 @@ TEMPLATE = {
                 "perplexity printed here may therefore be optimistic about unseen scientific text. The pretrained-versus-"
                 "adapted comparison stays like-for-like (same records, same tokens), but read the absolute pretrained "
                 "number with that caveat.\n\n"
+                "**Scoring convention.** No end-of-text token is prefixed, each record's first token is not scored, and the "
+                "end-of-text token appended during training is never scored. These perplexities are therefore not "
+                "comparable to published GPT-2 figures, which usually prefix the end-of-text token and score every token. "
+                "The add-one unigram floor is a deliberately weak, context-free reference (its 50,257 pseudo-counts "
+                "outweigh the 62,583 training tokens); an add-0.1 reference is printed beside it.\n\n"
                 "**Predict before running:** perplexity 1 means the model predicts every token with certainty; the "
                 "unigram floor ignores context. Will the pretrained model be closer to the floor or to 1?"
             ),
@@ -665,8 +728,9 @@ TEMPLATE = {
                 "**What to notice:** the unigram floor, the pretrained test perplexity with `'adapted': False`, the "
                 "per-record spread, the validation perplexity and `floor_outcome`.\n\n"
                 "<details><summary>Check your reasoning</summary>Far closer to 1 than to the floor. The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) "
-                "recorded a floor of 1,674.5 and a pretrained test perplexity of 39.43 (5.30 bits "
-                "per token) on the test split's 21,764 tokens: context cuts the model's uncertainty by a factor of about 40. Part of "
+                "recorded an add-one floor of 1,674.5 (add-0.1: 1,204.7) and a pretrained test perplexity of 39.43 (5.30 bits "
+                "per token) on the test split's 21,764 tokens: context cuts the model's uncertainty by a factor of about "
+                "31 against the add-0.1 reference, or about 42 against the deliberately weak add-one floor. Part of "
                 "that may be familiarity with this kind of text, or with these abstracts themselves (see the overlap note). "
                 "The per-record spread (about 14 to 98) shows that some abstracts are much harder than others. On your own "
                 "corpus `floor_outcome` is recorded, not asserted: a model that does not beat the floor there is a finding, "
@@ -687,11 +751,15 @@ TEMPLATE = {
                 "**Re-selection on validation (the Section 4 protocol).** The first cell below replays the pre-registered "
                 "grid: C0, C1 and C2 each train for two epochs from the pretrained weights and are scored on the validation "
                 "split only, and `select_configuration` applies the margin rule and prints the branch that decided. "
-                "The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) selected **C0** (no challenger beat C0 by 2% or more; C0 stays), so the training cell's form defaults "
+                "The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) selected **C0** (no challenger beat C0 by 2% or more; C0 stays) at the fixed two-epoch budget: every configuration's "
+                "best epoch was its last, so validation was still falling and the choice holds at this budget only "
+                "(`EPOCHS = 4` in the Next experiments probes it). C0 was also the lowest outright, so the margin did not "
+                "decide. The training cell's form defaults "
                 "are C0's settings (4 blocks, learning rate 1e-4). `RESELECT_ON_VALIDATION = False` "
                 "skips the grid, which costs three short training runs (about 1.4 min on a T4, an estimate; "
-                "17 min on the CPU build record's CPU). On your own data the grid's winner is the selected "
-                "configuration.\n\n"
+                "17 min on the CPU build record's CPU). On your own data, or on another `SPLIT_SEED` draw, the replay's winner is the "
+                "selected configuration and the training cell trains it unless you change its two fields; the 2 % margin "
+                "was justified on SciTLDR only.\n\n"
                 "**Predict before running:** will either two-block configuration beat four blocks by 2 % on validation?"
             ),
             "code": _GRID_CODE,
@@ -699,15 +767,18 @@ TEMPLATE = {
         {
             "md": (
                 "**What to notice:** each configuration's validation curve and best epoch, the `selected` line with its "
-                "`reason`, and `reproduces_recorded_selection`.\n\n"
+                "`reason`, the `paired_validation_vs_C0` lines and `reproduces_recorded_selection`.\n\n"
                 "<details><summary>Check your reasoning</summary>"
                 "The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) recorded best-epoch validation perplexities of C0 35.19 (epoch 2, 393 s); C1 36.88 (epoch 2, 313 s); C2 37.98 (epoch 2, 322 s). Training more "
                 "blocks gives the model more room to fit the genre in two epochs; the margin rule keeps the incumbent "
-                "unless a smaller configuration is clearly better, so a small difference never flips the default. On a "
+                "unless a smaller configuration is at least 2 % better, a predeclared practical tolerance, not a measured "
+                "noise level. Paired over the same 50 validation abstracts, the build record put C1 at "
+                "+0.068 bits per token against C0 (bootstrap 95 % interval +0.056 to +0.079; 47 of 50 abstracts "
+                "worse) and C2 at +0.110 (+0.092 to +0.128; 48 of 50 worse), on one seed. On a "
                 "GPU the numbers can differ slightly from the CPU record, which is why the selection is stated in advance "
                 "and only replayed here.</details>\n\n"
                 "**Train the selected configuration.** The next cell trains the form settings, by default the selected "
-                "configuration, once more from the pretrained weights (same seed, so on one device it repeats the grid's "
+                "configuration (the replay's choice on your data or another draw), once more from the pretrained weights (same seed, so on one device it repeats the grid's "
                 "run), checks epoch 0 against Section 6, and records whether these are the selected settings: the test "
                 "split is scored in Section 8 only if they are.\n\n"
                 "**Predict before running:** validation perplexity starts near the Section 6 value. After two epochs on "
@@ -725,15 +796,19 @@ TEMPLATE = {
                 "epochs, but these are 300 abstracts of one narrow genre; validation chose the configuration and the "
                 "epoch, so the test split is still unused.</details>\n\n"
                 "## 8. Held-out evaluation\n\n"
-                "The test split was never used for training, configuration or epoch selection, no earlier run scored it, "
-                "and no abstract or paper in it appears in another split. It is scored only when the Section 7 settings "
-                "are the selected configuration; any other setting (the Section 10 activity, for example) is read on "
-                "validation instead. The adapted model is scored exactly as the pretrained model was in Section "
-                "6, and the three numbers are put side by side with the per-record spread and `delta_vs_pretrained`. "
+                "The test split is used for no training, configuration or epoch choice, no recorded selection or tuning step "
+                "has read it, and no abstract or paper in it appears in another split. It is scored only when every pre-registered "
+                "setting holds; any other run (the Section 10 activity, your own data, another `SPLIT_SEED`) is "
+                "exploratory and is read on validation instead. `test_look` labels each run: `pre-registered evaluation`, "
+                "`reproduction` (an identical run after one), or `not scored (exploratory)`. The adapted model is scored exactly as the pretrained model was in Section "
+                "6, and the three numbers are put side by side with `delta_vs_pretrained`. `paired_per_record` compares each "
+                "abstract with itself: how many got easier, the median and quartiles of the per-record change in bits per "
+                "token, and a bootstrap 95 % interval of the token-weighted change (records resampled, seed 0). The "
+                "marginal min / median / max cannot show this: the hardest abstract before and after need not be the same one. "
                 "`adaptation_outcome` records whether the adaptation lowered held-out perplexity — a recorded outcome, "
                 "not an assertion, because on your own corpus or with other settings an adaptation that does not help is "
-                "a legitimate result to read. One hundred abstracts from one seeded split of one corpus give no "
-                "dispersion estimate; the delta is sample-sanity evidence that the adaptation contract works, not a benchmark, and a lower perplexity on "
+                "a legitimate result to read. One hundred abstracts from one seeded split of one corpus give a paired "
+                "bootstrap interval over records but no seed-to-seed estimate; the delta is sample-sanity evidence that the adaptation contract works, not a benchmark, and a lower perplexity on "
                 "paper abstracts says nothing about your corpus until you measure it there. The cell also adds this run "
                 "to `run_history`, which Section 10 prints. The **exposed development test**, the old 100 abstracts that the "
                 "2026-09 sweep read when it chose the earlier defaults, is printed once beside the test split, labelled, "
@@ -745,14 +820,18 @@ TEMPLATE = {
         },
         {
             "md": (
-                "**What to notice:** the three-way perplexity row, `delta_vs_pretrained`, the per-record spread before and "
-                "after, `adaptation_outcome` with `read_on`, and the labelled `exposed_development_test` line.\n\n"
+                "**What to notice:** the three-way perplexity row, `delta_vs_pretrained`, `paired_per_record` (with "
+                "`n_improved` and the interval), the `era_probe` lines, `adaptation_outcome` with `read_on`, and the labelled `exposed_development_test` line.\n\n"
                 "<details><summary>Check your reasoning</summary>The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) recorded 39.43 → "
-                "34.25 on the test split (Δ −5.18 perplexity, −0.20 bits per token), and the per-record maximum "
-                "fell from 98 to 90: most abstracts got easier, not just the average. The exposed "
-                "development test moved 40.17 → 34.73 (Δ −5.44); the Colab CLI T4 run of the previous version "
+                "34.25 on the test split (Δ −5.18 perplexity, −0.20 bits per token). Paired per abstract, 99 of 100 got "
+                "easier and 1 got harder: not every abstract improves. The median change was −0.204 bits per token "
+                "(quartiles −0.285 to −0.138), and the bootstrap 95 % interval of the token-weighted change, −0.224 to "
+                "−0.182, is well away from 0 for this seed and sample. The marginal maximum fell from 98 to 90, but that "
+                "alone could not have shown any of this. By the heuristic era split, the 9-character-id abstracts moved "
+                "36.63 → 32.03 (41 abstracts) and the others 41.69 → 36.04 (59). The exposed "
+                "development test moved 40.17 → 34.73 (Δ −5.44; 99 of 100 easier, interval −0.230 to −0.190 bits); the Colab CLI T4 run of the previous version "
                 "recorded 40.18 → 34.70 on those abstracts, with defaults chosen on their scores. About "
-                "0.20 bits per token is the gain on abstracts no earlier choice saw, measured once, on one small "
+                "0.20 bits per token is the gain on abstracts that no recorded choice read, on one seed and one small "
                 "sample of one corpus.</details>\n\n"
                 "## 9. Continue unseen abstracts before and after, export the adapter and reload it\n\n"
                 "The three abstract openings continued by the pretrained model in Section 5 are continued again by the "
@@ -802,10 +881,12 @@ TEMPLATE = {
                 "numbers stay valid.\n"
                 "4. **Observe:** this cell prints one row per Section 7 run in this session — the setting, the trained "
                 "parameter count, the best epoch, the pretrained and adapted validation perplexity with their delta, and the test "
-                "perplexity only for the selected configuration (`held out` for any other setting, so the test split is "
+                "perplexity only for a pre-registered run (`not scored (exploratory)` otherwise, so the test split is "
                 "never used to compare settings).\n"
-                "5. **Explain:** what did training three more blocks buy, and is the difference large compared with the "
-                "spread across records you saw in Section 8?\n\n"
+                "5. **Explain:** what did training three more blocks buy? Read the `paired_validation` line under the "
+                "table: the same validation abstracts scored after both runs, with a bootstrap 95 % interval of the "
+                "token-weighted difference. Is that interval clearly away from zero? (The spread across records in "
+                "Section 8 is the wrong yardstick: it mixes easy and hard abstracts, while both runs see the same ones.)\n\n"
                 "<details><summary>Check your reasoning</summary>Usually smaller: fewer trainable "
                 "parameters can adapt less of the model's behaviour to the genre in two epochs. No run of this activity "
                 "on the 300-abstract sample is recorded yet, so compare your two rows. The only measurement so far is a "
@@ -829,10 +910,11 @@ TEMPLATE = {
         "claim: the adaptation contract can adapt the model to a domain end to end on a real corpus, and the number it "
         "produces is read against the pretrained model and a context-free floor rather than in isolation. The pretrained "
         "and adapted numbers are measured on the same records and tokens, so their difference is like-for-like; the "
-        "configuration was re-selected on validation by a pre-registered rule, and the test split is 100 abstracts that no "
-        "earlier choice saw, scored once. The exposed development test is reported for continuity only.\n\n"
+        "configuration was re-selected on validation by a pre-registered rule, at the fixed two-epoch budget only, and the "
+        "test split is 100 abstracts that no recorded selection or tuning step has read; each run scores it once, for the "
+        "pre-registered configuration only. The exposed development test is reported for continuity only.\n\n"
         "Perplexity is intrinsic: it says how well the model predicts text it did not write, token-weighted, on one seeded "
-        "split of one corpus with no dispersion estimate. It is not fluency, factuality, usefulness or safety, and a lower "
+        "split of one corpus with a paired bootstrap over records but no seed-to-seed dispersion estimate. It is not fluency, factuality, usefulness or safety, and a lower "
         "perplexity does not make the completions in Section 9 better — they are unscored continuations from a base "
         "language model and can be false, repetitive, biased or offensive. The adapter changes the last blocks, which every "
         "prompt shares, so the model's behaviour on other text shifts too; nothing here measures that. Greedy decoding "
@@ -845,8 +927,8 @@ TEMPLATE = {
         "Successful execution proves that the recorded repository revision's pipeline modules, carried in this standalone "
         "notebook, can acquire and digest-verify the pinned model snapshot, fetch and digest-verify a real corpus, validate "
         "the demonstrated dataset contract without leakage, execute the inference contract in both decoding modes and a "
-        "bounded fine-tuning, evaluate by perplexity against a trivial floor and the pretrained model on a never-scored "
-        "test split read once for the configuration selected on validation, and emit the shown machine-readable artifacts — without the repository being reachable. It does **not** "
+        "bounded fine-tuning, evaluate by perplexity against a trivial floor and the pretrained model on a pinned "
+        "test split that no selection step reads, for the configuration selected on validation, and emit the shown machine-readable artifacts — without the repository being reachable. It does **not** "
         "establish benchmark superiority, text quality or factual reliability on any domain, a usable acceptance threshold, "
         "or production fitness.\n\n"
         "**Next experiments** (each starts after the default Run all; every adaptation starts again from the pretrained "
@@ -926,7 +1008,7 @@ TEMPLATE = {
         "- **Baselines / reference:** the unigram floor and the pretrained model on the same tokens, and "
         "`delta_vs_pretrained`.\n"
         "- **Uncertainty or failure mode:** the per-record spread; what did your Section 10 run change?\n"
-        "- **Limitations:** what does this run *not* show (pretraining overlap, one small test sample scored once, the "
+        "- **Limitations:** what does this run *not* show (pretraining overlap, one small test sample read only under the pre-registered settings, the "
         "exposed development test's history, one corpus, no quality score)?\n\n"
         "## References\n\n"
         "[1] A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, and I. Sutskever, \"Language models are unsupervised multitask learners,\" OpenAI, San Francisco, CA, USA, Tech. Rep., 2019. [Online]. Available: https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf\n"

@@ -166,7 +166,7 @@ def test_preregistration_precedes_every_score_and_independence_is_not_overclaime
     assert prereg < first_score
     grid = _index(nb, "reselection = reselect_on_validation(")
     adapt = _index(nb, "adapt_result = pipe.adapt(")
-    evaluate = _index(nb, "adapted_test = pipe.evaluate(test_records) if is_selected_run else None")
+    evaluate = _index(nb, "adapted_test = pipe.evaluate(test_records) if preregistered else None")
     assert first_score < grid < adapt < evaluate
     grid_src = _src(nb["cells"][grid])
     assert "test_records" not in grid_src and "RESELECT_ON_VALIDATION = True  # @param" in grid_src
@@ -331,7 +331,7 @@ def test_selection_is_wired_to_training_and_the_prompt_is_not_a_test_record(nb: 
     assert "replayed = reselection is not None and (USE_BYOD or SPLIT_SEED != 42)" in grid
     adapt = _src(nb["cells"][_index(nb, "adapt_result = pipe.adapt(")])
     assert adapt.index("TRAINABLE_BLOCKS, LEARNING_RATE = selected_config['trainable_blocks'], selected_config['lr']") < adapt.index("adapt_result = pipe.adapt(")
-    evaluate = _src(nb["cells"][_index(nb, "adapted_test = pipe.evaluate(test_records) if is_selected_run else None")])
+    evaluate = _src(nb["cells"][_index(nb, "adapted_test = pipe.evaluate(test_records) if preregistered else None")])
     assert "paired = paired_delta(before_m['records'], after_m['records'])" in evaluate
     generate = _src(nb["cells"][_index(nb, "GREEDY_MAX_NEW_TOKENS = 32  # @param")])
     assert "prompt = opening(val_records[0])" in generate and "test_records[0]" not in generate
@@ -340,3 +340,74 @@ def test_selection_is_wired_to_training_and_the_prompt_is_not_a_test_record(nb: 
         assert stale not in md, stale
     for needed in ("**predeclared practical tolerance**", "at this budget only", "**Scoring convention.**", "paired_per_record"):
         assert needed in md, needed
+
+
+# --- Score-once rule (SCORE_ONCE_RULE.md, 2026-10-17) -------------------------------------------------------------------
+
+
+def _preregistered() -> dict:
+    from gpt2_text_generation_pipeline.metrics import PREREGISTERED_SETTINGS
+
+    return json.loads(json.dumps(PREREGISTERED_SETTINGS))
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("epochs", 4),
+        ("batch_size", 4),
+        ("adapt_seed", 1),
+        ("learning_rate", 5e-5),
+        ("data_source", "BYOD"),
+        ("split_seed", 7),
+        ("trainable_blocks", 2),
+        ("max_train_tokens", 256),
+        ("configuration", "C1"),
+    ],
+)
+def test_any_changed_setting_makes_the_run_exploratory(name: str, value: object) -> None:
+    from gpt2_text_generation_pipeline.metrics import preregistration_diff, test_look
+
+    settings = _preregistered()
+    settings[name] = value
+    assert preregistration_diff(settings) == [name]
+    assert test_look(preregistration_diff(settings), 0) == "not scored (exploratory)"
+    assert test_look(preregistration_diff(settings), 3) == "not scored (exploratory)"
+
+
+def test_a_changed_dataset_digest_or_a_missing_setting_is_exploratory() -> None:
+    from gpt2_text_generation_pipeline.metrics import preregistration_diff
+
+    settings = _preregistered()
+    settings["dataset_digests"]["test"] = "0" * 64
+    assert preregistration_diff(settings) == ["dataset_digests"]
+    settings = _preregistered()
+    del settings["batch_size"]
+    assert preregistration_diff(settings) == ["batch_size"]
+
+
+def test_an_identical_rerun_is_a_reproduction() -> None:
+    from gpt2_text_generation_pipeline.metrics import preregistration_diff, test_look
+
+    differs = preregistration_diff(_preregistered())
+    assert differs == []
+    assert test_look(differs, 0) == "pre-registered evaluation"
+    assert test_look(differs, 1) == "reproduction"
+    assert test_look(differs, 5) == "reproduction"
+
+
+def test_the_notebook_gates_the_test_split_on_every_preregistered_setting(nb: dict) -> None:
+    train = _src(nb["cells"][_index(nb, "adapt_result = pipe.adapt(")])
+    assert "differs = preregistration_diff(settings)" in train and "preregistered = not differs" in train
+    for field in ("'epochs': EPOCHS", "'batch_size': BATCH_SIZE", "'learning_rate': LEARNING_RATE", "'adapt_seed': ADAPT_SEED",
+                  "'split_seed': SPLIT_SEED", "'data_source': 'BYOD' if USE_BYOD else 'sample'", "'dataset_digests'"):
+        assert field in train, field
+    evaluate = _src(nb["cells"][_index(nb, "adapted_test = pipe.evaluate(test_records) if preregistered else None")])
+    assert "look = test_look(differs," in evaluate
+    assert "_exploratory_" in evaluate  # exploratory passes never overwrite the pre-registered report
+    floor = _src(nb["cells"][_index(nb, "data_preregistered = not USE_BYOD and SPLIT_SEED == 42")])
+    assert "frozen_test = pipe.evaluate(test_records) if data_preregistered else None" in floor
+    every = "\n".join(_src(c) for c in nb["cells"])
+    assert "is_selected_run" not in every
+    md = "\n".join(_src(c) for c in nb["cells"] if c["cell_type"] == "markdown")
+    assert "scored once" not in md and "**only under the exact pre-registered settings**" in md
