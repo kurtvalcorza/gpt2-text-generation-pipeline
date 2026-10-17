@@ -1,0 +1,111 @@
+{
+  "label": "CPU build record (tools/reselect_on_validation.py), not a hosted run; pending the hosted run (REL13)",
+  "date": "2026-10-17",
+  "runtime": {
+    "python": "3.12.14",
+    "torch": "2.14.0+cpu",
+    "transformers": "4.57.6",
+    "device": "cpu",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "threads": 24
+  },
+  "selected": "C0",
+  "config": {
+    "name": "C0",
+    "trainable_blocks": 4,
+    "lr": 0.0001,
+    "role": "incumbent default (kept unless beaten)"
+  },
+  "dataset_digests": {
+    "train": "f6230198abc575863b6a3a116d8ff5b9df93a5f1843eace4156ffd8e81b5caa1",
+    "validation": "479448c67fc6328e4039bd81ae3dd6b41aed66a1e40facd208f4bc8577453fbf",
+    "test": "a20180b4219a3be5e75fc450406b854ba0b98758c1de92d78f306211aa7f8488",
+    "exposed_test": "f39289da97bb7025e9133a4aae80d94771b2e6713e26d1c07e5f1c460f11e95e"
+  },
+  "adaptation": {
+    "best_epoch": 2,
+    "val_perplexity_by_epoch": [
+      40.96540128501261,
+      36.71137229676124,
+      35.18677108018108
+    ],
+    "matches_grid_run": true,
+    "n_trainable": 28351488,
+    "n_train_tokens": 62583,
+    "seconds": 345.5
+  },
+  "unigram_floor_fresh_test": {
+    "perplexity": 1674.5256188306673,
+    "bits_per_token": 10.709536732893772,
+    "n_tokens": 21764
+  },
+  "fresh_test": {
+    "pretrained": {
+      "perplexity": 39.433933139264724,
+      "bits_per_token": 5.301365706868082,
+      "mean_nll": 3.6746266928327924,
+      "n_records": 100,
+      "n_tokens": 21764,
+      "record_perplexity": {
+        "min": 13.984024108899304,
+        "median": 39.69669941668386,
+        "max": 97.85580338859516
+      },
+      "adapted": false
+    },
+    "adapted": {
+      "perplexity": 34.25303059558021,
+      "bits_per_token": 5.098159733523702,
+      "mean_nll": 3.533775045336196,
+      "n_records": 100,
+      "n_tokens": 21764,
+      "record_perplexity": {
+        "min": 13.340385811697113,
+        "median": 33.42421850459326,
+        "max": 89.67383375486257
+      },
+      "adapted": true
+    }
+  },
+  "exposed_development_test": {
+    "pretrained": {
+      "perplexity": 40.17460571693822,
+      "bits_per_token": 5.328211959907601,
+      "mean_nll": 3.6932350974357337,
+      "n_records": 100,
+      "n_tokens": 19779,
+      "record_perplexity": {
+        "min": 19.85198566559618,
+        "median": 40.55880178868123,
+        "max": 96.98317701719743
+      },
+      "adapted": false
+    },
+    "adapted": {
+      "perplexity": 34.731162278352485,
+      "bits_per_token": 5.118158786205054,
+      "mean_nll": 3.547637332316145,
+      "n_records": 100,
+      "n_tokens": 19779,
+      "record_perplexity": {
+        "min": 18.957702713362846,
+        "median": 35.428465930287224,
+        "max": 84.49062241745392
+      },
+      "adapted": true
+    }
+  },
+  "completions_changed": 3,
+  "completions_of": 3,
+  "artifact": {
+    "tensors": 48,
+    "bytes": 113410784
+  },
+  "reload_parity_validation10": {
+    "in_memory": 36.05485621968333,
+    "reloaded": 36.05485621968333,
+    "identical_completions": 3,
+    "of": 3
+  },
+  "pretrained_validation_perplexity": 40.96540128501261
+}

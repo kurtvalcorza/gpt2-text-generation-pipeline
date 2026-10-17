@@ -63,3 +63,31 @@ configuration and the rule branch that chose it; then, for the selected configur
 perplexity (pretrained and adapted, with the unigram floor) and the exposed-test perplexity (pretrained and
 adapted). The local run is a **CPU build record**, not a hosted run (REL13); the hosted run of the regenerated
 notebook is recorded in `docs/release-verification.md` when it exists.
+
+## 2. Result (CPU build record)
+
+Run once with `tools/reselect_on_validation.py` at commit `d7f2c71` on a Windows workstation CPU (CPython 3.12.14,
+`torch 2.14.0+cpu`, `transformers 4.57.6`, float32, 24 threads). This is a **CPU build record, not a hosted run**;
+the hosted run of the regenerated notebook is pending (REL13) and goes in `docs/release-verification.md`.
+Records: `docs/reselection/validation_selection_2026-10-17.json` (written before any test record was scored) and
+`docs/reselection/fresh_test_2026-10-17.json`.
+
+| Config | Blocks | lr | Validation perplexity by epoch (0 → 1 → 2) | Best epoch | Score | vs C0 | Wall |
+|---|---|---|---|---|---|---|---|
+| C0 | 4 | 1e-4 | 40.97 → 36.71 → 35.19 | 2 | **35.19** | — | 393 s |
+| C1 | 2 | 1e-4 | 40.97 → 38.10 → 36.88 | 2 | 36.88 | 4.8 % worse | 313 s |
+| C2 | 2 | 5e-5 | 40.97 → 39.07 → 37.98 | 2 | 37.98 | 7.9 % worse | 322 s |
+
+Grid wall time 1,028 s. **Selected on validation: C0** (no challenger beat C0 by 2 % or more; the incumbent stays).
+The defaults (`TRAINABLE_BLOCKS = 4`, `LEARNING_RATE = 1e-4`) are unchanged; they are now the configuration selected
+on validation by the rule above rather than the one chosen from test scores. The selected configuration was then
+trained once more (346 s; its validation curve repeated the grid run exactly) and scored once:
+
+| Split | Records / tokens | Unigram floor | Pretrained | Adapted (C0) | Δ perplexity | Δ bits/token |
+|---|---|---|---|---|---|---|
+| Fresh test (never scored before) | 100 / 21,764 | 1,674.5 | 39.43 | **34.25** | −5.18 | −0.20 |
+| Exposed development test (old 100, scored in 2026-09) | 100 / 19,779 | — | 40.17 | 34.73 | −5.44 | −0.21 |
+
+Per-record perplexity on the fresh test: 14.0 / 39.7 / 97.9 (min / median / max) pretrained, 13.3 / 33.4 / 89.7
+adapted. Adapter: 48 tensors, 113,410,784 bytes; reload parity on ten validation records 36.054856 both ways, 3/3
+identical completions; 3/3 unseen-abstract continuations changed by the adaptation.

@@ -1,6 +1,6 @@
 """Static release-asset validation for the GPT-2 124M text-generation DIMER pipeline.
 
-Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.2 §4), the tutorial
+Checks the STANDALONE tutorial notebook (DIMER Notebook Specification 2.5 §4), the tutorial
 registry, model card, README, STATUS.md and weight documentation for source conformance and
 cross-document identity consistency, and runs the generator parity checks (PAR1–PAR3).
 
@@ -41,7 +41,15 @@ CODE_MARKERS = (
     # Stage 4: pinned corpus, validation, disjoint split, CSV, refusal probes
     "USE_BYOD = False",
     "corpus = read_corpus(fetch_corpus(cache_dir='weights/scitldr'))",
-    "splits = build_sample_dataset(corpus, seed=SPLIT_SEED)",
+    "splits = build_tutorial_dataset(corpus, seed=SPLIT_SEED)",
+    # T31-1: paper-disjoint splits, the pinned never-scored test, validation-only re-selection, test scored once
+    "papers = check_paper_disjoint(splits)",
+    "reselection = reselect_on_validation(pipe, train_records, val_records, epochs=2, batch_size=8, seed=0, progress=grid_report)",
+    "adapted_test = pipe.evaluate(test_records) if is_selected_run else None",
+    "parity_records = val_records[:10]",
+    # T31-4: BYOD refusals are messages; unexpected errors keep their traceback
+    "except (OSError, TypeError, ValueError) as exc:",
+    "raise DatasetRefused(f'BYOD refused: {exc}",
     "records = load_byod_dataset(byod_path)",
     # GPT-m1: each split validated with the minimum the next stage applies; BYOD has a path field
     "dataset_manifests = validate_splits(splits)",
@@ -79,7 +87,7 @@ CODE_MARKERS = (
     "adapted_test = pipe.evaluate(test_records)",
     "adapted_val = pipe.evaluate(val_records)",
     "'delta_vs_pretrained'",
-    "adaptation_outcome = 'lowered held-out perplexity' if adapted_test['perplexity'] < frozen_test['perplexity'] else",
+    "adaptation_outcome = 'lowered held-out perplexity' if after_m['perplexity'] < before_m['perplexity'] else",
     # GPT-M3: one row per Section 7 run; every export of a run describes one model
     "run_history = globals().get('run_history', [])",
     "assert evaluation_report_payload['adaptation']['trainable_blocks'] == artifact_manifest['adapter']['trainable_blocks'] == TRAINABLE_BLOCKS, ",
@@ -106,8 +114,14 @@ STALE_MARKDOWN = (
     "The build record",
     "watch the gain shrink",
     "8..20,000 records",
+    # T31-1, T31-2, T31-8
+    "on an independent split",
+    "test-split perplexities",
+    "no hosted run of this version is recorded yet",
+    "previous version's Kaggle T4 run recorded",
+    "Reload parity is exact",
 )
-# The guided layer (NOTEBOOK_SPEC 2.2 §3.5, GDL1-GDL14; review GPT-M2): each marker with its minimum count.
+# The guided layer (NOTEBOOK_SPEC 2.5 §3.5, GDL1-GDL14; review GPT-M2): each marker with its minimum count.
 GUIDED_MARKERS = (
     ("**Who this is for.**", 1),
     ("**Input → Model → Output.**", 1),
@@ -142,8 +156,12 @@ MARKDOWN_MARKERS = (
     "**Pretraining overlap.**",
     # GPT-m1: the effective BYOD minimum
     "at least **12 unique records**",
-    # tuned-on-test disclosure (Kurt's standing decision)
-    "**optimistic, not independent evidence**",
+    # T31-1: the pre-registered protocol (replaces the tuned-on-test disclosure)
+    "**Pre-registered evaluation protocol (2026-10-17).**",
+    "exposed development test",
+    # T31-3 (DOC17) and T31-5 (EXE5)
+    "> **⚠️ Notice.** For research, training and evaluation only.",
+    "`DIMER_ISOLATED_ENV`",
 )
 # Direct-library use that must stay inside the carried module cell (G2: the notebook calls the
 # pipeline API, it does not reimplement it). Checked on every code cell except the embedded one.
@@ -169,10 +187,11 @@ FORBIDDEN_OUTSIDE_MODULE = (
 # ---------------------------------------------------------------------------
 # Shared checks. Everything below is source/structure validation only. Passing
 # these checks is NOT clean-runtime execution evidence under DIMER Notebook
-# Specification 2.2; see docs/release-verification.md for the release gate.
+# Specification 2.5; see docs/release-verification.md for the release gate.
 # ---------------------------------------------------------------------------
 
-NOTEBOOK_SPEC = "2.2"
+NOTEBOOK_SPEC = "2.5"
+NOTEBOOK_KIND = "TUTORIAL"
 ALLOWED_PROFILES = {"E2E", "ARTIFACT-INFERENCE", "TASK-INFERENCE", "MULTI-CAPABILITY", "SMOKE"}
 STATUS_TOKENS = ("Candidate", "Release-grade")
 PLACEHOLDER = re.compile(r"\b(TODO|TBD|FIXME)\b|Insert text here|Tooltip:", re.I)
@@ -245,7 +264,9 @@ COMMON_MARKDOWN_MARKERS = (
     "without the repository being",
     "It does **not** establish benchmark superiority",
     "## References",
-    f"- Repository model card: https://github.com/kurtvalcorza/{REPO_NAME}/blob/main/MODEL_CARD.md",
+    # DOC14: IEEE-style references (row 31, T31-3)
+    "[1] A. Radford, J. Wu, R. Child, D. Luan, D. Amodei, and I. Sutskever,",
+    f"[Online]. Available: https://github.com/kurtvalcorza/{REPO_NAME}",
 )
 # Patterns that must never appear in tutorial code (comment-stripped), in any cell.
 FORBIDDEN_PATTERNS = (
@@ -492,6 +513,7 @@ def _validate_notebook_structure(path: Path, notebook: dict) -> tuple[list[tuple
     _check(profile == EXPECTED_PROFILE, f"{path.name}: profile {profile!r} != declared {EXPECTED_PROFILE!r}")
     spec = dimer.get("notebook_spec", dimer.get("notebook_spec_version"))
     _check(spec == NOTEBOOK_SPEC, f"{path.name}: metadata.dimer must declare notebook spec version '{NOTEBOOK_SPEC}'")
+    _check(dimer.get("notebook_kind") == NOTEBOOK_KIND, f"{path.name}: metadata.dimer.notebook_kind must be {NOTEBOOK_KIND!r} (KND1)")
     _check(dimer.get("notebook_mode") in ("REFERENCE", "GUIDED", "WORKSHOP"), f"{path.name}: metadata.dimer.notebook_mode must declare a §3.3 pedagogical mode")
     _check(dimer.get("standalone") is True, f"{path.name}: metadata.dimer.standalone must be true (ST6)")
     generated = dimer.get("generated_from")
