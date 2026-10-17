@@ -298,12 +298,14 @@ _EVAL_CODE = _py(
     """adapted_val = pipe.evaluate(val_records)
 # Score-once rule: the test split is read only under the pre-registered settings (Section 7 printed which differ).
 earlier = [r for r in globals().get('run_history', [])]
-look = test_look(differs, sum(r.get('test_look') in ('pre-registered evaluation', 'reproduction') for r in earlier))
+# The pre-registered evaluation of record (docs/release-verification.md); an identical later run is a reproduction of it.
+RECORDED_EVALUATION = 'Colab CLI T4, 2026-10-17, notebook blob 87fdb2de (docs/execution-evidence/2026-10-17/)'
+look = test_look(differs, bool(RECORDED_EVALUATION) + sum(r.get('test_look') in ('pre-registered evaluation', 'reproduction') for r in earlier))
 run_tag = '' if preregistered else f"_exploratory_{sum(r.get('test_look') == 'not scored (exploratory)' for r in earlier) + 1}"
 adapted_test = pipe.evaluate(test_records) if preregistered else None
 held_out = 'test' if adapted_test is not None else 'validation (exploratory: the test split is not scored)'
 floor_matches = adapted_test is not None or not data_preregistered
-print({'test_look': look, 'differs_from_preregistration': differs})
+print({'test_look': look, 'recorded_evaluation': RECORDED_EVALUATION, 'differs_from_preregistration': differs})
 before_m, after_m = (frozen_test, adapted_test) if adapted_test is not None else (frozen_val, adapted_val)
 comparison = {
     metric: {'unigram_floor': round(unigram[metric], 3) if floor_matches else None, 'pretrained': round(before_m[metric], 3), 'adapted': round(after_m[metric], 3)}
@@ -487,10 +489,10 @@ TEMPLATE = {
         "needs no repository clone, no DIMER worker or service, no credential, no upload dialog and no configuration edit "
         "(NOTEBOOK_SPEC 2.5 §5). Every hosted run of every notebook version, with its "
         "measured times, is listed in `docs/release-verification.md`; the numbers quoted in this notebook's worked "
-        "answers are the CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run), pending a hosted run (REL13). Building the isolated environment and downloading the "
+        "answers are the pre-registered evaluation of record, the Colab CLI T4 run of 2026-10-17 (REL13: that run; a CPU development look of the same day, disclosed there, came first and changed no setting). Building the isolated environment and downloading the "
         "checkpoint usually take a few minutes; the Section 7 re-selection grid adds three short training runs "
-        "(about 1.4 min on a T4, an estimate scaled from the recorded 32.7 s four-block T4 run; 17 min "
-        "on the CPU build record's workstation CPU, measured)."
+        "(90.0 s on the 2026-10-17 T4 run, measured; 17 min "
+        "on the CPU development look's workstation CPU, measured)."
     ),
     "byod": (
         "After the tutorial workflow completes, set `USE_BYOD = True` in Section 4, select that cell and choose "
@@ -599,7 +601,7 @@ TEMPLATE = {
     ),
     "prerequisites": [
         "- **Learner:** basic Python; what next-token prediction is; what a train/validation/test split protects against. The notebook explains greedy decoding and nucleus sampling, perplexity (the exponential of the mean per-token negative log-likelihood), bits per token, teacher forcing, the unigram floor, transformer blocks, epochs, the adapter and reload parity where they are first used; the Glossary repeats them.",
-        "- **Runtime:** a fresh **Linux x86_64** runtime — Google Colab, Kaggle or Linux Jupyter. Section 1 builds its own Python 3.12.12 environment from a hash-locked list of manylinux wheels, so the kernel's own Python version does not matter, and a Windows or macOS kernel is not supported (Section 1 stops with that message). The default path runs on CPU (float32) and uses CUDA automatically when available. Measured times, each with its run: the Colab CLI T4 run of the previous notebook version (2026-10-04, blob d88cc658) took 153.8 s for the whole session, 56 s of it building the environment and 32.7 s training four blocks; the CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) took 17 min for the three-configuration grid and 346 s for the selected configuration's two epochs. Every recorded run is listed in `docs/release-verification.md`. A Colab CPU runtime may be slower than a workstation (no hosted CPU run is recorded). The locked install (PyTorch 2.14.0 with its CUDA libraries) and the 548 MB checkpoint are the large downloads.",
+        "- **Runtime:** a fresh **Linux x86_64** runtime — Google Colab, Kaggle or Linux Jupyter. Section 1 builds its own Python 3.12.12 environment from a hash-locked list of manylinux wheels, so the kernel's own Python version does not matter, and a Windows or macOS kernel is not supported (Section 1 stops with that message). The default path runs on CPU (float32) and uses CUDA automatically when available. Measured times, each with its run: the Colab CLI T4 run of this version (2026-10-17, blob 87fdb2de, the pre-registered evaluation of record) took 267.1 s for the whole session, 48 s of it building the environment, 90.0 s for the three-configuration grid and 33.8 s training the selected configuration; the Colab CLI T4 run of the previous notebook version (2026-10-04, blob d88cc658) took 153.8 s for the whole session, 56 s of it building the environment and 32.7 s training four blocks; the CPU development look of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) took 17 min for the three-configuration grid and 346 s for the selected configuration's two epochs. Every recorded run is listed in `docs/release-verification.md`. A Colab CPU runtime may be slower than a workstation (no hosted CPU run is recorded). The locked install (PyTorch 2.14.0 with its CUDA libraries) and the 548 MB checkpoint are the large downloads.",
         "- **Data contract:** records are `{id, text}` — one document of the domain, 1..4,000 characters and at most 1,023 BPE tokens (a longer record is refused, not truncated, when scored), ids matching `^[A-Za-z0-9_.:-]{1,64}$` and unique; at most 20,000 records. **Minimum size:** at least **12 unique records** with the default split fractions (15 % validation, 20 % test), because the training split must keep 8; a refusal names the number to supply. Texts are de-duplicated case-insensitively before splitting so the same document never sits in two splits; during training only, documents are truncated to 512 tokens and the end-of-text token is appended.",
         "- **BYOD file (Section 4):** CSV with an `id,text` header, a JSON array or JSONL of `{id, text}` objects, or a `.txt` file in which every blank-line-separated paragraph is one document, saved as UTF-8 (a spreadsheet's 'CSV UTF-8'). On Colab the upload dialog opens; on any runtime set `BYOD_PATH` to the file instead. Your training split is written to `outputs/gpt2_text_generation_train.csv`, the same file the sample writes, which is also a template of the expected shape.",
         "- **Validation is structural, not semantic:** nothing checks that a record belongs to the domain you mean — an off-topic corpus is fine-tuned on without complaint.",
@@ -727,7 +729,7 @@ TEMPLATE = {
             "md": (
                 "**What to notice:** the unigram floor, the pretrained test perplexity with `'adapted': False`, the "
                 "per-record spread, the validation perplexity and `floor_outcome`.\n\n"
-                "<details><summary>Check your reasoning</summary>Far closer to 1 than to the floor. The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) "
+                "<details><summary>Check your reasoning</summary>Far closer to 1 than to the floor. The pre-registered evaluation of record (Colab CLI T4, 2026-10-17; REL13: that run; the CPU development look printed the same values) "
                 "recorded an add-one floor of 1,674.5 (add-0.1: 1,204.7) and a pretrained test perplexity of 39.43 (5.30 bits "
                 "per token) on the test split's 21,764 tokens: context cuts the model's uncertainty by a factor of about "
                 "31 against the add-0.1 reference, or about 42 against the deliberately weak add-one floor. Part of "
@@ -751,13 +753,13 @@ TEMPLATE = {
                 "**Re-selection on validation (the Section 4 protocol).** The first cell below replays the pre-registered "
                 "grid: C0, C1 and C2 each train for two epochs from the pretrained weights and are scored on the validation "
                 "split only, and `select_configuration` applies the margin rule and prints the branch that decided. "
-                "The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) selected **C0** (no challenger beat C0 by 2% or more; C0 stays) at the fixed two-epoch budget: every configuration's "
+                "The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run; a disclosed development look) selected **C0** (no challenger beat C0 by 2% or more; C0 stays), and the 2026-10-17 T4 run of record replayed the same choice, at the fixed two-epoch budget: every configuration's "
                 "best epoch was its last, so validation was still falling and the choice holds at this budget only "
                 "(`EPOCHS = 4` in the Next experiments probes it). C0 was also the lowest outright, so the margin did not "
                 "decide. The training cell's form defaults "
                 "are C0's settings (4 blocks, learning rate 1e-4). `RESELECT_ON_VALIDATION = False` "
-                "skips the grid, which costs three short training runs (about 1.4 min on a T4, an estimate; "
-                "17 min on the CPU build record's CPU). On your own data, or on another `SPLIT_SEED` draw, the replay's winner is the "
+                "skips the grid, which costs three short training runs (90.0 s on the 2026-10-17 T4 run; "
+                "17 min on the CPU development look's CPU). On your own data, or on another `SPLIT_SEED` draw, the replay's winner is the "
                 "selected configuration and the training cell trains it unless you change its two fields; the 2 % margin "
                 "was justified on SciTLDR only.\n\n"
                 "**Predict before running:** will either two-block configuration beat four blocks by 2 % on validation?"
@@ -769,13 +771,13 @@ TEMPLATE = {
                 "**What to notice:** each configuration's validation curve and best epoch, the `selected` line with its "
                 "`reason`, the `paired_validation_vs_C0` lines and `reproduces_recorded_selection`.\n\n"
                 "<details><summary>Check your reasoning</summary>"
-                "The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) recorded best-epoch validation perplexities of C0 35.19 (epoch 2, 393 s); C1 36.88 (epoch 2, 313 s); C2 37.98 (epoch 2, 322 s). Training more "
+                "The pre-registered evaluation of record (Colab CLI T4, 2026-10-17; REL13: that run) recorded best-epoch validation perplexities of C0 35.20 (epoch 2, 31.9 s); C1 36.92 (epoch 2, 28.6 s); C2 38.00 (epoch 2, 29.5 s); the CPU development look of the same day (disclosed in `docs/release-verification.md`) had 35.19 / 36.88 / 37.98 and the same choice. Training more "
                 "blocks gives the model more room to fit the genre in two epochs; the margin rule keeps the incumbent "
                 "unless a smaller configuration is at least 2 % better, a predeclared practical tolerance, not a measured "
-                "noise level. Paired over the same 50 validation abstracts, the round-2 CPU reproduction of this version (2026-10-17; not a hosted run) put C1 at "
-                "+0.068 bits per token against C0 (bootstrap 95 % interval +0.056 to +0.079; 47 of 50 abstracts "
-                "worse) and C2 at +0.110 (+0.092 to +0.128; 48 of 50 worse), on one seed. On a "
-                "GPU the numbers can differ slightly from the CPU record, which is why the selection is stated in advance "
+                "noise level. Paired over the same 50 validation abstracts, the same T4 run put C1 at "
+                "+0.069 bits per token against C0 (bootstrap 95 % interval +0.057 to +0.080; 48 of 50 abstracts "
+                "worse) and C2 at +0.111 (+0.092 to +0.129; 48 of 50 worse), on one seed. On "
+                "another device the numbers can differ slightly from this record, which is why the selection is stated in advance "
                 "and only replayed here.</details>\n\n"
                 "**Train the selected configuration.** The next cell trains the form settings, by default the selected "
                 "configuration (the replay's choice on your data or another draw), once more from the pretrained weights (same seed, so on one device it repeats the grid's "
@@ -790,9 +792,9 @@ TEMPLATE = {
             "md": (
                 "**What to notice:** epoch 0 with its relative difference to Section 6 (0 on one device), the trainable "
                 "and total parameter counts, the validation perplexity per epoch, `best_epoch` and `these_are_the_selected_settings`.\n\n"
-                "<details><summary>Check your reasoning</summary>A few points. The CPU build record recorded validation "
-                "perplexity 40.97 → 36.71 → 35.19 (best epoch 2) for C0; the Colab CLI T4 run of the previous version "
-                "(2026-10-04, same default settings) recorded 40.97 → 36.59 → 35.20. A fall of about five points is large for two "
+                "<details><summary>Check your reasoning</summary>A few points. The 2026-10-17 T4 run of record recorded validation "
+                "perplexity 40.97 → 36.59 → 35.20 (best epoch 2) for C0, as did the Colab CLI T4 run of the previous version "
+                "(2026-10-04, same default settings); the CPU development look recorded 40.97 → 36.71 → 35.19. A fall of about five points is large for two "
                 "epochs, but these are 300 abstracts of one narrow genre; validation chose the configuration and the "
                 "epoch, so the test split is still unused.</details>\n\n"
                 "## 8. Held-out evaluation\n\n"
@@ -800,7 +802,7 @@ TEMPLATE = {
                 "has read it, and no abstract or paper in it appears in another split. It is scored only when every pre-registered "
                 "setting holds; any other run (the Section 10 activity, your own data, another `SPLIT_SEED`) is "
                 "exploratory and is read on validation instead. `test_look` labels each run: `pre-registered evaluation`, "
-                "`reproduction` (an identical run after one), or `not scored (exploratory)`. The adapted model is scored exactly as the pretrained model was in Section "
+                "`reproduction` (an identical run after the recorded evaluation that `RECORDED_EVALUATION` names, or after one in this session), or `not scored (exploratory)`. The adapted model is scored exactly as the pretrained model was in Section "
                 "6, and the three numbers are put side by side with `delta_vs_pretrained`. `paired_per_record` compares each "
                 "abstract with itself: how many got easier, the median and quartiles of the per-record change in bits per "
                 "token, and a bootstrap 95 % interval of the token-weighted change (records resampled, seed 0). The "
@@ -822,16 +824,17 @@ TEMPLATE = {
             "md": (
                 "**What to notice:** the three-way perplexity row, `delta_vs_pretrained`, `paired_per_record` (with "
                 "`n_improved` and the interval), the `era_probe` lines, `adaptation_outcome` with `read_on`, and the labelled `exposed_development_test` line.\n\n"
-                "<details><summary>Check your reasoning</summary>The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) recorded 39.43 → "
-                "34.25 on the test split (Δ −5.18 perplexity, −0.20 bits per token). Paired per abstract, 99 of 100 got "
+                "<details><summary>Check your reasoning</summary>The pre-registered evaluation of record (Colab CLI T4, 2026-10-17; REL13: that run) recorded 39.43 → "
+                "34.19 on the test split (Δ −5.25 perplexity, −0.21 bits per token); a CPU development look of the same day, disclosed in "
+                "`docs/release-verification.md` and used to change no setting, had recorded 34.25 (Δ −5.18). Paired per abstract, 99 of 100 got "
                 "easier and 1 got harder: not every abstract improves. The median change was −0.204 bits per token "
-                "(quartiles −0.285 to −0.138), and the bootstrap 95 % interval of the token-weighted change, −0.224 to "
-                "−0.182, is well away from 0 for this seed and sample. The marginal maximum fell from 98 to 90, but that "
+                "(quartiles −0.287 to −0.139), and the bootstrap 95 % interval of the token-weighted change, −0.227 to "
+                "−0.185, is well away from 0 for this seed and sample. The marginal maximum fell from 98 to 90, but that "
                 "alone could not have shown any of this. By the heuristic era split, the 9-character-id abstracts moved "
-                "36.63 → 32.03 (41 abstracts) and the others 41.69 → 36.04 (59). The exposed "
-                "development test moved 40.17 → 34.73 (Δ −5.44; 99 of 100 easier, interval −0.230 to −0.190 bits); the Colab CLI T4 run of the previous version "
-                "recorded 40.18 → 34.70 on those abstracts, with defaults chosen on their scores. About "
-                "0.20 bits per token is the gain on abstracts that no recorded choice read, on one seed and one small "
+                "36.63 → 31.95 (41 abstracts) and the others 41.69 → 35.98 (59). The exposed "
+                "development test moved 40.18 → 34.70 (Δ −5.47; 99 of 100 easier, interval −0.231 to −0.191 bits), the numbers the Colab CLI T4 run of the previous version "
+                "recorded on those abstracts, with defaults chosen on their scores. About "
+                "0.21 bits per token is the gain on abstracts that no recorded choice read, on one seed and one small "
                 "sample of one corpus.</details>\n\n"
                 "## 9. Continue unseen abstracts before and after, export the adapter and reload it\n\n"
                 "The three abstract openings continued by the pretrained model in Section 5 are continued again by the "
@@ -863,9 +866,9 @@ TEMPLATE = {
                 "`adapted_differs_from_pretrained`; the adapter's `trainable_blocks`, tensor count and size; and "
                 "`reload_parity`.\n\n"
                 "<details><summary>Check your reasoning</summary>Often a little more abstract-like (\"we propose\", "
-                "\"our method\"), but three greedy fragments are anecdotes, not evidence; the CPU build record changed "
-                "3/3. Reload parity holds within 1e-6, the assertion's tolerance: the CPU build record "
-                "printed 36.054856 both ways for the ten validation records and 3/3 identical "
+                "\"our method\"), but three greedy fragments are anecdotes, not evidence; the 2026-10-17 T4 run of record changed "
+                "3/3. Reload parity holds within 1e-6, the assertion's tolerance: that run "
+                "printed 36.027572 both ways for the ten validation records and 3/3 identical "
                 "completions, from an adapter of 48 tensors (113,410,784 bytes). "
                 "Loading a file is not reproducing a result; the parity check is what shows the export is the model that "
                 "was evaluated.</details>\n\n"
