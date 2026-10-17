@@ -196,6 +196,40 @@ def build_fresh_test(
     return out
 
 
+def check_near_duplicates(
+    splits: Mapping[str, Sequence[Mapping[str, Any]]], *, n: int = 8, threshold: float = 0.5
+) -> dict[str, Any]:
+    """Refuse two records in different splits whose word `n`-gram containment (shared n-grams over the smaller
+    record's n-grams) is at least `threshold`: an edited resubmission under a new id."""
+    grams: list[tuple[str, int, set[tuple[str, ...]]]] = []
+    for name, records in splits.items():
+        for index, record in enumerate(records):
+            words = str(record["text"]).lower().split()
+            grams.append((name, index, {tuple(words[i : i + n]) for i in range(max(0, len(words) - n + 1))}))
+    owners: dict[tuple[str, ...], list[int]] = {}
+    for k, (_name, _index, g) in enumerate(grams):
+        for gram in g:
+            owners.setdefault(gram, []).append(k)
+    worst = 0.0
+    for k, (name, index, g) in enumerate(grams):
+        shared: dict[int, int] = {}
+        for gram in g:
+            for other in owners[gram]:
+                if other > k and grams[other][0] != name:
+                    shared[other] = shared.get(other, 0) + 1
+        for other, count in shared.items():
+            smaller = min(len(g), len(grams[other][2])) or 1
+            containment = count / smaller
+            worst = max(worst, containment)
+            if containment >= threshold:
+                o_name, o_index, _ = grams[other]
+                raise ValueError(
+                    f"{name}[{index}] and {o_name}[{o_index}] share {containment:.0%} of word {n}-grams "
+                    "(a near-duplicate across splits)"
+                )
+    return {"n": n, "threshold": threshold, "max_containment": round(worst, 4)}
+
+
 def build_tutorial_dataset(
     corpus: Mapping[str, Sequence[Mapping[str, Any]]], *, seed: int = SAMPLE_SEED
 ) -> dict[str, list[dict[str, Any]]]:
@@ -212,6 +246,7 @@ def build_tutorial_dataset(
     }
     check_split_disjoint(splits)
     check_paper_disjoint(splits)
+    check_near_duplicates(splits)
     return splits
 
 

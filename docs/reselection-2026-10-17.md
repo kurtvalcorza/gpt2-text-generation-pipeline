@@ -85,7 +85,7 @@ trained once more (346 s; its validation curve repeated the grid run exactly) an
 
 | Split | Records / tokens | Unigram floor | Pretrained | Adapted (C0) | Δ perplexity | Δ bits/token |
 |---|---|---|---|---|---|---|
-| Fresh test (never scored before) | 100 / 21,764 | 1,674.5 | 39.43 | **34.25** | −5.18 | −0.20 |
+| Fresh test (no recorded selection read it) | 100 / 21,764 | 1,674.5 | 39.43 | **34.25** | −5.18 | −0.20 |
 | Exposed development test (old 100, scored in 2026-09) | 100 / 19,779 | — | 40.17 | 34.73 | −5.44 | −0.21 |
 
 Per-record perplexity on the fresh test: 14.0 / 39.7 / 97.9 (min / median / max) pretrained, 13.3 / 33.4 / 89.7

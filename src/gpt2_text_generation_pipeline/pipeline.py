@@ -443,6 +443,11 @@ class GPT2TextGenerationPipeline:
         started = time.perf_counter()
         losses = [self._scorer(ids) for ids in self._record_ids(checked)]
         metrics = sequence_metrics(losses)
+        # Per-record mean NLL keyed by id, so two scorings of the same records can be compared pairwise.
+        metrics["records"] = {
+            r["id"]: {"mean_nll": sum(rec) / len(rec), "n_tokens": len(rec)}
+            for r, rec in zip(checked, losses, strict=True)
+        }
         metrics.update(
             {
                 "verdict": "measured" if len(checked) >= MIN_SCORED_RECORDS else "measured-small-sample",
@@ -455,15 +460,17 @@ class GPT2TextGenerationPipeline:
         return metrics
 
     def unigram_baseline(
-        self, train: Sequence[Mapping[str, Any]], test: Sequence[Mapping[str, Any]]
+        self, train: Sequence[Mapping[str, Any]], test: Sequence[Mapping[str, Any]], alpha: float = 1.0
     ) -> dict[str, Any]:
-        """Perplexity of an add-one unigram model over the GPT-2 vocabulary, fitted on `train`, on `test`."""
+        """Perplexity of an add-`alpha` unigram model (GPT-2 vocabulary) fitted on `train`, on `test`."""
         from .metrics import unigram_baseline
         from .samples import validate_dataset
 
         train_checked = validate_dataset(train, min_records=1, max_records=MAX_RECORDS_FIT)["records"]
         test_checked = validate_dataset(test, min_records=1, max_records=MAX_EVAL_RECORDS)["records"]
-        return unigram_baseline(self._record_ids(train_checked), self._record_ids(test_checked), VOCAB_SIZE)
+        return unigram_baseline(
+            self._record_ids(train_checked), self._record_ids(test_checked), VOCAB_SIZE, alpha
+        )
 
     def _remember_pretrained(self, names: Sequence[str]) -> None:
         """Keep a copy of each named tensor the first time it is about to change."""
@@ -834,6 +841,8 @@ def reselect_on_validation(
                 else (lambda entry, name=config["name"]: progress(name, entry)),
             )
             curve = [None if h["val"] is None else h["val"]["perplexity"] for h in run["history"]]
+            # The kept (best-epoch) model's per-record validation NLLs, for paired comparisons.
+            val_records = pipe.evaluate(val)["records"]
             results.append(
                 {
                     **dict(config),
@@ -842,15 +851,23 @@ def reselect_on_validation(
                     "val_perplexity_by_epoch": curve,
                     "adapted": run["best_epoch"] != 0,
                     "n_trainable": run["n_trainable"],
+                    "val_records": val_records,
                     "seconds": round(time.perf_counter() - started, 1),
                 }
             )
     finally:
         pipe.reset_to_pretrained()
     selection = select_configuration({r["name"]: r["best_val_perplexity"] for r in results}, grid=grid)
+    # Not part of the rule: how far each challenger's paired validation difference to the incumbent is from 0.
+    from .metrics import paired_delta
+
+    paired = {
+        r["name"]: paired_delta(results[0]["val_records"], r["val_records"]) for r in results[1:]
+    }
     return {
         "grid": results,
         "selection": selection,
+        "paired_vs_incumbent_validation": paired,
         "fixed": {
             "epochs": epochs,
             "batch_size": batch_size,

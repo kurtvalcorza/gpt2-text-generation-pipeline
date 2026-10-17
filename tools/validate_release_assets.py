@@ -45,7 +45,6 @@ CODE_MARKERS = (
     # T31-1: paper-disjoint splits, the pinned never-scored test, validation-only re-selection, test scored once
     "papers = check_paper_disjoint(splits)",
     "reselection = reselect_on_validation(pipe, train_records, val_records, epochs=2, batch_size=8, seed=0, progress=grid_report)",
-    "adapted_test = pipe.evaluate(test_records) if is_selected_run else None",
     "parity_records = val_records[:10]",
     # T31-4: BYOD refusals are messages; unexpected errors keep their traceback
     "except (OSError, TypeError, ValueError) as exc:",
@@ -58,7 +57,7 @@ CODE_MARKERS = (
     "disjoint = check_split_disjoint(splits)",
     "write_dataset_csv(train_records, 'outputs/gpt2_text_generation_train.csv')",
     # Stage 5: the inference contract in both modes with its manifest, rejection probe and sanity checks
-    "input_manifest = validate_inputs(prompt, max_new_tokens=GREEDY_MAX_NEW_TOKENS, names=['test-opening'])",
+    "input_manifest = validate_inputs(prompt, max_new_tokens=GREEDY_MAX_NEW_TOKENS, names=['validation-opening'])",
     "sampling_settings = validate_settings(SAMPLE_MAX_NEW_TOKENS, True, TEMPERATURE, TOP_P, SEED)",
     "validate_inputs(prompt, max_new_tokens=SAMPLE_MAX_NEW_TOKENS, do_sample=True, temperature=TEMPERATURE, top_p=TOP_P)",
     "greedy = pipe.generate(prompt, max_new_tokens=GREEDY_MAX_NEW_TOKENS)",
@@ -70,11 +69,17 @@ CODE_MARKERS = (
     "'finished_by_is_known': greedy['finished_by'] in ('eos', 'max_new_tokens')",
     "before = {r['id']: pipe.generate(opening(r), max_new_tokens=GREEDY_MAX_NEW_TOKENS)['completion'] for r in unseen_records}",
     # Stage 6: the unigram floor and the frozen perplexity
-    "unigram = pipe.unigram_baseline(train_records, test_records)",
+    "unigram = pipe.unigram_baseline(train_records, reference_records)",
+    # score-once rule (2026-10-17): the test split is read only under the pre-registered settings
+    "data_preregistered = not USE_BYOD and SPLIT_SEED == 42",
+    "differs = preregistration_diff(settings)",
+    "adapted_test = pipe.evaluate(test_records) if preregistered else None",
+    "look = test_look(differs,",
+    "paired = paired_delta(before_m['records'], after_m['records'])",
     "frozen_test = pipe.evaluate(test_records)",
-    "if frozen_test['n_tokens'] != unigram['n_tokens']:",
+    "if frozen_reference['n_tokens'] != unigram['n_tokens']:",
     # GPT-m2: the perplexity comparisons are recorded outcomes, not bare assertions
-    "floor_outcome = 'pretrained model below the unigram floor' if frozen_test['perplexity'] < unigram['perplexity']",
+    "floor_outcome = 'pretrained model below the unigram floor' if frozen_reference['perplexity'] < unigram['perplexity']",
     # GPT-M3: every section that measures or trains the pretrained model starts from it; epoch 0 is checked
     "pipe.reset_to_pretrained()",
     "frozen_val = pipe.evaluate(val_records)",
@@ -148,7 +153,10 @@ MARKDOWN_MARKERS = (
     "**domain adaptation measured by that number**",
     "**add-one unigram model**",
     "**rejects, never truncates**",
-    "no dispersion estimate",
+    "no seed-to-seed dispersion estimate",
+    "**Scoring convention.**",
+    "**predeclared practical tolerance**",
+    "**only under the exact pre-registered settings**",
     "GPT-2 ships no pad token, so the pipeline fixes `pad_token_id = eos_token_id = 50256`",
     "chat or instruction following (GPT-2 has neither), batching (one prompt per call)",
     "Apache-2.0 (Cachola et al., 2020)",

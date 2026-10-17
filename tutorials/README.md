@@ -69,7 +69,7 @@ This repository’s code and accompanying documentation were developed with gene
 
 - **Re-selection on validation (T31-1):** the defaults are re-selected by the pre-registered grid of
   `docs/reselection-2026-10-17.md` (validation only, 2 % margin, ties to the smaller configuration); C0 (4 blocks,
-  1e-4) was kept. The test split is a pinned never-scored draw of 100 abstracts (digest `a20180b4…`), scored once for
+  1e-4) was kept. The test split is a pinned draw of 100 abstracts that no selection step reads (digest `a20180b4…`), scored only under the pre-registered settings (see docs/release-verification.md for the recorded evaluation and its reproductions) for
   the selected configuration; the old 100 are printed once as the labelled exposed development test. The grid runs
   by default (`RESELECT_ON_VALIDATION`); estimated at about 1.4 min on a T4, measured at 17 min on a workstation CPU.
 - **Provenance (T31-6):** the generator refuses to stamp a revision whose tree lacks the carried module bytes; the

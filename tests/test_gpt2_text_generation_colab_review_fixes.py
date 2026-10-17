@@ -360,7 +360,7 @@ def test_no_bare_assert_and_the_comparisons_are_recorded(nb: dict) -> None:
         bare = [n.lineno for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Assert) and n.msg is None]
         assert not bare, source[:80]
     floor = _cell(nb, "unigram = pipe.unigram_baseline(")
-    assert "frozen_test['perplexity'] < unigram['perplexity']" in floor and "floor_outcome =" in floor
+    assert "frozen_reference['perplexity'] < unigram['perplexity']" in floor and "floor_outcome =" in floor
     evaluation = _cell(nb, "adapted_test = pipe.evaluate(test_records)")
     assert "adaptation_outcome = " in evaluation and "'adaptation_outcome': adaptation_outcome" in evaluation
     assert "assert adapted_test" not in evaluation

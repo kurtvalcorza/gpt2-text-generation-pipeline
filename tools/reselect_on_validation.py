@@ -26,6 +26,7 @@ sys.path.insert(0, str(REPO / "src"))
 
 from gpt2_text_generation_pipeline import pipeline as gp  # noqa: E402
 from gpt2_text_generation_pipeline import samples  # noqa: E402
+from gpt2_text_generation_pipeline.metrics import paired_delta  # noqa: E402
 
 LABEL = "CPU build record (tools/reselect_on_validation.py), not a hosted run; pending the hosted run (REL13)"
 
@@ -39,12 +40,33 @@ def _write(path: Path, payload: dict) -> None:
 def _score(metrics: dict) -> dict:
     keys = ("perplexity", "bits_per_token", "mean_nll", "n_records", "n_tokens", "record_perplexity")
     keys += ("adapted",)
+    # per-record NLLs stay in the paired summaries, not in every score
     return {k: metrics[k] for k in keys}
 
 
 def _opening(record: dict, chars: int = 120) -> str:
     head = record["text"][:chars]
     return head.rsplit(" ", 1)[0] if " " in head else head
+
+
+def _era_probe(records: list, before: dict, after: dict) -> dict:
+    """Token-weighted perplexity by OpenReview id length (9 characters = ICLR 2018 era, a heuristic)."""
+    import math
+
+    out = {}
+    for label, keep in (
+        ("id_len_9", lambda r: len(r["paper_id"]) == 9),
+        ("id_len_other", lambda r: len(r["paper_id"]) != 9),
+    ):
+        ids = [r["id"] for r in records if keep(r)]
+        tokens = sum(before[i]["n_tokens"] for i in ids)
+        out[label] = {
+            "n": len(ids),
+            "n_tokens": tokens,
+            "pretrained": math.exp(sum(before[i]["mean_nll"] * before[i]["n_tokens"] for i in ids) / tokens),
+            "adapted": math.exp(sum(after[i]["mean_nll"] * after[i]["n_tokens"] for i in ids) / tokens),
+        }
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -145,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
             "date": time.strftime("%Y-%m-%d"),
             "runtime": runtime,
             "selected": reselection["selection"]["selected"],
+            # Score-once rule: this tool runs only the pre-registered settings (a later identical run is a reproduction).
+            "test_look": "pre-registered evaluation (CPU build record)",
+            "differs_from_preregistration": [],
             "config": chosen,
             "dataset_digests": digests,
             "adaptation": {
@@ -171,6 +196,15 @@ def main(argv: list[str] | None = None) -> int:
                 "of": len(unseen),
             },
             "pretrained_validation_perplexity": pretrained_val["perplexity"],
+            # Round 2 (peer review G-M1, G-m4, G-s1): paired per-record comparisons and stronger references.
+            "paired_fresh_test": paired_delta(pretrained_test["records"], adapted_test["records"]),
+            "paired_exposed_test": paired_delta(pretrained_exposed["records"], adapted_exposed["records"]),
+            "unigram_add_0.1_fresh_test": {
+                k: v
+                for k, v in pipe.unigram_baseline(train, test, alpha=0.1).items()
+                if k in ("perplexity", "n_tokens")
+            },
+            "era_probe_fresh_test": _era_probe(test, pretrained_test["records"], adapted_test["records"]),
         },
     )
     return 0

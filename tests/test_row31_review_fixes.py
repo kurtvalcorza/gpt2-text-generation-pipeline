@@ -12,6 +12,7 @@ import contextlib
 import hashlib
 import io
 import json
+import math
 import random
 import subprocess
 import sys
@@ -94,7 +95,11 @@ class _GridPipe:
         self.calls.append(("adapt", len(train), len(val), kw["trainable_blocks"], kw["lr"], kw["epochs"]))
         final = {4: 35.0, 2: 35.5}[kw["trainable_blocks"]] + (0.3 if kw["lr"] < 1e-4 else 0.0)
         history = [{"epoch": e, "val": {"perplexity": p}} for e, p in enumerate((41.0, 37.0, final))]
+        self.last = final
         return {"best_epoch": 2, "history": history, "n_trainable": kw["trainable_blocks"]}
+
+    def evaluate(self, records):
+        return {"records": {f"v{i}": {"mean_nll": math.log(self.last) + i / 1000, "n_tokens": 10} for i in range(len(records))}}
 
 
 def test_reselect_on_validation_trains_every_config_from_pretrained_on_validation_only() -> None:
@@ -111,7 +116,7 @@ def test_reselect_on_validation_trains_every_config_from_pretrained_on_validatio
 
 def _corpus(n: int = 40) -> dict[str, list[dict[str, str]]]:
     def member(name: str, k: int) -> list[dict[str, str]]:
-        return [{"paper_id": f"{name}{i}", "text": f"{name} abstract {i} " + "word " * 50} for i in range(k)]
+        return [{"paper_id": f"{name}{i}", "text": f"{name} abstract {i} " + " ".join(f"w{name}{i}x{j}" for j in range(40))} for i in range(k)]
 
     corpus = {"train": member("tr", n), "dev": member("dv", n), "test": member("te", n)}
     corpus["test"][5]["text"] = corpus["train"][3]["text"]  # a text shared with another member
@@ -284,3 +289,54 @@ def test_the_stamped_revision_contains_every_carried_module(nb: dict) -> None:
 def test_the_generator_refuses_a_revision_without_the_carried_bytes(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="does not hold the carried bytes"):
         build.check_revision_holds_modules(ROOT, "HEAD", {"src/gpt2_text_generation_pipeline/pipeline.py": "0" * 64})
+
+
+# --- Round 2 (peer review G-M1, G-m4, G-m5, G-m7, G-s2, G-s3) ---------------------------------------------------------
+
+
+def test_paired_delta_reads_each_record_against_itself() -> None:
+    from gpt2_text_generation_pipeline.metrics import paired_delta
+
+    before = {f"r{i}": {"mean_nll": 3.0 + i / 10, "n_tokens": 10 + i} for i in range(20)}
+    after = {k: {"mean_nll": v["mean_nll"] - (0.1 if i % 4 else -0.05), "n_tokens": v["n_tokens"]} for i, (k, v) in enumerate(before.items())}
+    out = paired_delta(before, after, n_boot=500, seed=1)
+    assert out["n"] == 20 and out["n_improved"] == 15
+    assert out["bootstrap_95ci"][0] <= out["token_weighted_delta_bits"] <= out["bootstrap_95ci"][1] < 0
+    assert out == paired_delta(before, after, n_boot=500, seed=1)  # fixed seed: reproducible
+    with pytest.raises(ValueError, match="same, non-empty set"):
+        paired_delta(before, {"x": {"mean_nll": 1.0, "n_tokens": 3}})
+    with pytest.raises(ValueError, match="different tokens"):
+        paired_delta({"a": {"mean_nll": 1.0, "n_tokens": 3}}, {"a": {"mean_nll": 1.0, "n_tokens": 4}})
+
+
+def test_the_record_median_is_the_true_median_and_alpha_smooths_the_unigram() -> None:
+    from gpt2_text_generation_pipeline.metrics import sequence_metrics, unigram_baseline
+
+    out = sequence_metrics([[1.0], [2.0], [3.0], [4.0]])
+    assert out["record_perplexity"]["median"] == pytest.approx((math.exp(2.0) + math.exp(3.0)) / 2)
+    train, test = [[1, 2, 2, 3]], [[0, 2, 9]]
+    assert unigram_baseline(train, test, 50)["perplexity"] > unigram_baseline(train, test, 50, alpha=0.1)["perplexity"]
+
+
+def test_near_duplicates_across_splits_are_refused() -> None:
+    text = "we propose a new method for training deep networks with sparse gradients and show strong results on benchmarks"
+    edited = text.replace("strong", "robust")
+    with pytest.raises(ValueError, match="near-duplicate"):
+        sm.check_near_duplicates({"train": [{"text": text}], "test": [{"text": edited}]})
+    assert sm.check_near_duplicates({"train": [{"text": text}], "test": [{"text": "an unrelated abstract " * 5}]})["max_containment"] == 0
+
+
+def test_selection_is_wired_to_training_and_the_prompt_is_not_a_test_record(nb: dict) -> None:
+    grid = _src(nb["cells"][_index(nb, "reselection = reselect_on_validation(")])
+    assert "replayed = reselection is not None and (USE_BYOD or SPLIT_SEED != 42)" in grid
+    adapt = _src(nb["cells"][_index(nb, "adapt_result = pipe.adapt(")])
+    assert adapt.index("TRAINABLE_BLOCKS, LEARNING_RATE = selected_config['trainable_blocks'], selected_config['lr']") < adapt.index("adapt_result = pipe.adapt(")
+    evaluate = _src(nb["cells"][_index(nb, "adapted_test = pipe.evaluate(test_records) if is_selected_run else None")])
+    assert "paired = paired_delta(before_m['records'], after_m['records'])" in evaluate
+    generate = _src(nb["cells"][_index(nb, "GREEDY_MAX_NEW_TOKENS = 32  # @param")])
+    assert "prompt = opening(val_records[0])" in generate and "test_records[0]" not in generate
+    md = "\n".join(_src(c) for c in nb["cells"] if c["cell_type"] == "markdown")
+    for stale in ("never-scored", "no earlier run scored", "spread across records you saw in Section 8?", "most abstracts got easier, not just the average"):
+        assert stale not in md, stale
+    for needed in ("**predeclared practical tolerance**", "at this budget only", "**Scoring convention.**", "paired_per_record"):
+        assert needed in md, needed
