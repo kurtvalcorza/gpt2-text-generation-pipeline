@@ -732,7 +732,10 @@ def _validate_notebook_content(
     _validate_gates(path, code_cells)
     _validate_bootstrap_guard(path, code_cells)
     for filename in EXPECTED_OUTPUTS:
-        _check(filename in code, f"{path.name}: must export {filename}")
+        # Score-once rule: an exploratory run writes `<name>{run_tag}<ext>` beside the pre-registered file.
+        stem, dot, ext = filename.rpartition(".") if filename.rpartition("/")[2].count(".") else (filename, "", "")
+        tagged = f"{stem}{{run_tag}}{dot}{ext}"
+        _check(filename in code or tagged in code, f"{path.name}: must export {filename}")
     missing_md = [marker for marker in COMMON_MARKDOWN_MARKERS + MARKDOWN_MARKERS if marker not in markdown]
     _check(not missing_md, f"{path.name}: missing learner-facing markers: {missing_md}")
     stale = [marker for marker in STALE_MARKDOWN if marker in markdown]
