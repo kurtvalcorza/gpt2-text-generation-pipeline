@@ -801,3 +801,65 @@ class GPT2TextGenerationPipeline:
         pipeline = cls.from_pretrained(device=device, weights_dir=weights_dir, allow_download=allow_download)
         pipeline.load_artifact(artifact_dir)
         return pipeline
+
+
+def reselect_on_validation(
+    pipe: GPT2TextGenerationPipeline,
+    train: Sequence[Mapping[str, Any]],
+    val: Sequence[Mapping[str, Any]],
+    *,
+    grid: Sequence[Mapping[str, Any]] | None = None,
+    epochs: int = 2,
+    batch_size: int = 8,
+    seed: int = 0,
+    progress: Callable[[str, dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Run the pre-registered grid on `val` and apply `select_configuration`; no test record is touched.
+
+    Every configuration starts from the pretrained weights, and the pipeline is returned to them afterwards,
+    so the caller trains the selected configuration itself."""
+    from .metrics import RESELECTION_GRID, select_configuration
+
+    grid = tuple(grid or RESELECTION_GRID)
+    results = []
+    try:
+        for config in grid:
+            pipe.reset_to_pretrained()
+            started = time.perf_counter()
+            run = pipe.adapt(
+                train, val, epochs=epochs, lr=config["lr"], batch_size=batch_size,
+                trainable_blocks=config["trainable_blocks"], seed=seed,
+                progress=None
+                if progress is None
+                else (lambda entry, name=config["name"]: progress(name, entry)),
+            )
+            curve = [None if h["val"] is None else h["val"]["perplexity"] for h in run["history"]]
+            results.append(
+                {
+                    **dict(config),
+                    "best_epoch": run["best_epoch"],
+                    "best_val_perplexity": min(v for v in curve if v is not None),
+                    "val_perplexity_by_epoch": curve,
+                    "adapted": run["best_epoch"] != 0,
+                    "n_trainable": run["n_trainable"],
+                    "seconds": round(time.perf_counter() - started, 1),
+                }
+            )
+    finally:
+        pipe.reset_to_pretrained()
+    selection = select_configuration({r["name"]: r["best_val_perplexity"] for r in results}, grid=grid)
+    return {
+        "grid": results,
+        "selection": selection,
+        "fixed": {
+            "epochs": epochs,
+            "batch_size": batch_size,
+            "seed": seed,
+            "optimizer": "AdamW (weight decay 0.01)",
+            "grad_clip": 1.0,
+            "max_train_tokens": MAX_TRAIN_TOKENS,
+            "dtype": "float32",
+        },
+        "n_train": len(train),
+        "n_val": len(val),
+    }

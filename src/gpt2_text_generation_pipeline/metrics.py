@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 METRIC_DEFINITIONS = {
@@ -80,3 +80,62 @@ def unigram_baseline(
     result = sequence_metrics(unigram_losses(train_ids, test_ids, vocab_size))
     result["baseline"] = "add-one-smoothed unigram model fitted on the training tokens (ignores context)"
     return result
+
+
+# The pre-registered re-selection grid of 2026-10-17 (docs/reselection-2026-10-17.md). Everything else is
+# fixed: 2 epochs with the best epoch chosen on validation, batch 8, AdamW wd 0.01, clip 1.0, ADAPT_SEED 0,
+# 512 training tokens.
+RESELECTION_GRID: tuple[dict[str, Any], ...] = (
+    {"name": "C0", "trainable_blocks": 4, "lr": 1e-4, "role": "incumbent default (kept unless beaten)"},
+    {"name": "C1", "trainable_blocks": 2, "lr": 1e-4, "role": "smaller"},
+    {"name": "C2", "trainable_blocks": 2, "lr": 5e-5, "role": "smaller and gentler"},
+)
+RESELECTION_MARGIN = 0.02  # a challenger must beat the incumbent by at least 2 % relative
+
+
+def select_configuration(
+    scores: Mapping[str, float],
+    *,
+    grid: Sequence[Mapping[str, Any]] = RESELECTION_GRID,
+    margin: float = RESELECTION_MARGIN,
+) -> dict[str, Any]:
+    """Apply the pre-registered rule to best-epoch validation perplexities keyed by config name.
+
+    The first grid entry is the incumbent. A challenger replaces it only if it is at least `margin` lower
+    (relative); among challengers that clear the margin the lowest wins, unless two are within `margin` of
+    each other, in which case the smaller configuration (fewer blocks, then lower learning rate) wins."""
+    by_name = {g["name"]: dict(g) for g in grid}
+    if set(scores) != set(by_name):
+        raise ValueError(f"scores must cover exactly {sorted(by_name)}; got {sorted(scores)}")
+    for name, value in scores.items():
+        if not (isinstance(value, (int, float)) and math.isfinite(value) and value > 0):
+            raise ValueError(f"{name}: a validation perplexity must be positive and finite, got {value!r}")
+    incumbent = grid[0]["name"]
+    base = scores[incumbent]
+    relative = {name: (base - scores[name]) / base for name in by_name}
+    cleared = [g["name"] for g in grid[1:] if relative[g["name"]] >= margin]
+
+    def size(name: str) -> tuple[int, float]:
+        return (by_name[name]["trainable_blocks"], by_name[name]["lr"])
+
+    if not cleared:
+        chosen = incumbent
+        reason = f"no challenger beat {incumbent} by {margin:.0%} or more; {incumbent} stays"
+    else:
+        best = min(cleared, key=lambda n: (scores[n], size(n)))
+        close = [n for n in cleared if (scores[n] - scores[best]) / scores[best] < margin]
+        chosen = min(close, key=size)
+        reason = f"{chosen} beat {incumbent} by {relative[chosen]:.1%}"
+        if len(close) > 1:
+            others = ", ".join(n for n in close if n != chosen)
+            reason += f"; within {margin:.0%} of {others}, the smaller wins"
+    return {
+        "selected": chosen,
+        "config": by_name[chosen],
+        "reason": reason,
+        "scores": dict(scores),
+        "improvement_vs_incumbent": {k: round(v, 6) for k, v in relative.items()},
+        "margin": margin,
+        "rule": "lowest best-epoch validation perplexity; a challenger replaces the incumbent only if >= "
+        "margin better (relative); challengers within margin of each other go to the smaller configuration",
+    }
