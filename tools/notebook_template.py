@@ -772,7 +772,7 @@ TEMPLATE = {
                 "The CPU build record of this version (2026-10-17, `tools/reselect_on_validation.py`, CPython 3.12.14, PyTorch 2.14.0+cpu; not a hosted run) recorded best-epoch validation perplexities of C0 35.19 (epoch 2, 393 s); C1 36.88 (epoch 2, 313 s); C2 37.98 (epoch 2, 322 s). Training more "
                 "blocks gives the model more room to fit the genre in two epochs; the margin rule keeps the incumbent "
                 "unless a smaller configuration is at least 2 % better, a predeclared practical tolerance, not a measured "
-                "noise level. Paired over the same 50 validation abstracts, the build record put C1 at "
+                "noise level. Paired over the same 50 validation abstracts, the round-2 CPU reproduction of this version (2026-10-17; not a hosted run) put C1 at "
                 "+0.068 bits per token against C0 (bootstrap 95 % interval +0.056 to +0.079; 47 of 50 abstracts "
                 "worse) and C2 at +0.110 (+0.092 to +0.128; 48 of 50 worse), on one seed. On a "
                 "GPU the numbers can differ slightly from the CPU record, which is why the selection is stated in advance "
