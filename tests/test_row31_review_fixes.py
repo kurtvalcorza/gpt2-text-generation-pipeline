@@ -256,7 +256,7 @@ def test_declarations_use_notice_and_environment_override(nb: dict) -> None:
     assert notice < first_code
     head = _src(nb["cells"][0])
     assert "without warranty of any kind" in head and "no hosted run of this version is recorded yet" not in head
-    assert "`docs/release-verification.md`" in head and "pending a hosted run (REL13)" in head
+    assert "`docs/release-verification.md`" in head and "REL13: that run" in head and "pending a hosted run" not in head
     md = "\n".join(_src(c) for c in nb["cells"] if c["cell_type"] == "markdown")
     assert "`DIMER_ISOLATED_ENV`" in md and "[1] A. Radford" in md and "within 1e-6" in md
 
