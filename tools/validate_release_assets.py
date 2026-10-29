@@ -48,7 +48,7 @@ CODE_MARKERS = (
     "parity_records = val_records[:10]",
     # T31-4: BYOD refusals are messages; unexpected errors keep their traceback
     "except (OSError, TypeError, ValueError) as exc:",
-    "raise DatasetRefused(f'BYOD refused: {str(exc).rstrip(\".\")}. ",
+    "raise DatasetRefused(f'{byod_label}: {str(exc).rstrip(\".\")}. ",
     "records = load_byod_dataset(byod_path)",
     # GPT-m1: each split validated with the minimum the next stage applies; BYOD has a path field
     "dataset_manifests = validate_splits(splits)",

@@ -338,7 +338,7 @@ def test_section4_without_a_path_or_with_a_cancelled_upload_names_the_next_actio
     monkeypatch.chdir(tmp_path)
     monkeypatch.setitem(sys.modules, "google.colab", None)
     ns = _section4_namespace(tmp_path)
-    with pytest.raises(sm.DatasetRefused, match="BYOD refused: USE_BYOD = True needs a file.*set BYOD_PATH"):
+    with pytest.raises(sm.DatasetRefused, match=r"^\(no file\): USE_BYOD = True needs a file.*set BYOD_PATH"):
         _run_section4(nb, ns, use_byod=True, path="")
     google, colab, files = types.ModuleType("google"), types.ModuleType("google.colab"), types.ModuleType("google.colab.files")
     google.__path__, colab.__path__ = [], []
