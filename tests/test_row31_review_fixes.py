@@ -219,11 +219,11 @@ def test_a_refused_file_is_a_message_that_keeps_outputs_and_ends_the_run(nb: dic
     bad = tmp_path / "bad.csv"
     bad.write_text("id,text\na,hello\n", encoding="utf-8")  # far below the 12-record minimum
     ns = _ns()
-    with pytest.raises(sm.DatasetRefused, match=r"^BYOD refused: .*kept") as caught:
+    with pytest.raises(sm.DatasetRefused, match=r"^bad.csv: .*kept") as caught:
         _run_section4(nb, ns, str(bad))
-    assert caught.value._render_traceback_() == [str(caught.value)]
+    assert caught.value._render_traceback_() == ["Refused: " + str(caught.value)]
     assert "adapt_result" not in ns and "splits" not in ns and (tmp_path / "outputs" / "earlier.json").is_file()
-    with pytest.raises(sm.DatasetRefused, match="BYOD refused"):
+    with pytest.raises(sm.DatasetRefused, match="^missing.csv: "):
         _run_section4(nb, _ns(), str(tmp_path / "missing.csv"))  # OSError path
 
 

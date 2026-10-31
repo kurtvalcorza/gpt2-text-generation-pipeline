@@ -1,0 +1,72 @@
+{
+  "repo": "gpt2-text-generation-pipeline",
+  "sha": "aa487f6e42f8ab3eecb55aa962e5313a37f133e4",
+  "notebook": "tutorials/gpt2_text_generation_colab.ipynb",
+  "blob": "1e01705c1b2e5c44b260a364ff40ec9fdebd89dc",
+  "gpu": "T4",
+  "session": "suite-gpt2-aa487f6-f6bc",
+  "started_utc": "2026-10-30T20:48:06+00:00",
+  "runner": "Colab CLI `colab exec -f` on a fresh session (not a browser Run all)",
+  "overrides": [
+    {
+      "name": "USE_BYOD",
+      "from": "False",
+      "to": "True"
+    },
+    {
+      "name": "BYOD_PATH",
+      "from": "''",
+      "to": "'/etc/hostname'"
+    }
+  ],
+  "run_copy_blob": "8ff7c545139d6fa98d836cd0acfc7b18155c2911",
+  "run_copy_sha256": "640250734c6851c29c30ef8e4e259c6cf1c8b1344c00160f44f09d70b585e4cc",
+  "run_copy_note": "refusal run: the run copy is the committed notebook with the listed assignment overrides, cut immediately after the refusal cell and re-serialised (nbformat layout); input_unchanged compares against that copy",
+  "truncated_after_cell": "gpt2_text_generation-17",
+  "refusal_cell_ref": "gpt2_text_generation-17",
+  "refusal_cell_index": 8,
+  "cells_dropped": 15,
+  "code_cells_dropped": 7,
+  "original_sha256": "33b2b8bd88bc5300d0d90347c72e5f46748e6d365f327956b8276fbf7d0a9f34",
+  "status": "[suite-gpt2-aa487f6-f6bc] gpu-t4-s-usw1b1-1kpmdmle1k7lq | Hardware: T4 | Shape: Standard | Variant: GPU | Status: IDLE",
+  "exec_exit_code": 0,
+  "stopped": true,
+  "stop_verified": true,
+  "wall_s": 96.8,
+  "input_unchanged": true,
+  "executed_file": "gpt2_text_generation_colab_aa487f6_colab-cli-t4_output.ipynb",
+  "log_cells": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+  ],
+  "log_total": 8,
+  "code_cells": 8,
+  "executed_cells": 5,
+  "errors": [
+    {
+      "cell": "gpt2_text_generation-17",
+      "ename": "IsolatedCellRefusal",
+      "evalue": "hostname: unsupported BYOD file type '(none)': use .csv, .json, .jsonl or .txt. Nothing from this file is used and the run is reset; files an earlier run wrote to outputs/ are kept. Fix the file (or BYOD_PATH) and run this cell again."
+    }
+  ],
+  "execution_counts": [],
+  "sequential": null,
+  "executed_sha256": "fbc770e5a4eb4eb5f24350d6d2f3334f6620561eda0aa645e89568e075034255",
+  "log_sequential_complete": true,
+  "mode": "expect_refusal",
+  "refusal_line": "Refused: hostname: unsupported BYOD file type '(none)': use .csv, .json, .jsonl or .txt. Nothing from this file is used and the run is reset; files an earlier run wrote to outputs/ are kept. Fix the file (or BYOD_PATH) and run this cell again.",
+  "halting_cell_index": 8,
+  "halting_cell_id": "gpt2_text_generation-17",
+  "error_cells": [
+    8
+  ],
+  "refusal_fail_reasons": [],
+  "refusal_ok": true,
+  "verdict": "PASS"
+}

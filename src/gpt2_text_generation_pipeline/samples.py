@@ -71,12 +71,13 @@ FRESH_TEST_DIGEST = "a20180b4219a3be5e75fc450406b854ba0b98758c1de92d78f306211aa7
 
 
 class DatasetRefused(ValueError):
-    """An expected refusal of the learner's data (BYOD): the notebook shows the message, not a traceback."""
+    """An expected refusal of the learner's data (BYOD), ``<file>: <reason>``: the notebook shows the one line
+    ``Refused: <file>: <reason>``, not a traceback (DAT20)."""
 
     dimer_refusal = True
 
     def _render_traceback_(self) -> list[str]:  # IPython shows this instead of a traceback
-        return [str(self)]
+        return [f"Refused: {self}"]
 
 
 def _sha256_bytes(data: bytes) -> str:

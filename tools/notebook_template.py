@@ -58,8 +58,10 @@ pipe.reset_to_pretrained()
 for stale in ('splits', 'train_records', 'val_records', 'test_records', 'exposed_test_records', 'dataset_manifests', 'disjoint', 'reselection', 'selected_config', 'adapt_result', 'frozen_test', 'frozen_val', 'frozen_exposed', 'adapted_test', 'adapted_val', 'frozen_reference', 'preregistered', 'differs'):
     globals().pop(stale, None)
 if USE_BYOD:
-    # Expected refusals (no file, an empty upload, a file that breaks the contract) print one message and stop;
+    # Expected refusals (no file, an empty upload, a file that breaks the contract) show one Refused: line and stop;
     # files that an earlier run wrote to outputs/ are kept. Anything unexpected keeps its traceback.
+    # The file the learner gave, by name; '(no file)' until an upload arrives.
+    byod_label = (Path(BYOD_PATH.strip()).name or BYOD_PATH.strip()) if BYOD_PATH.strip() else '(no file)'
     try:
         if BYOD_PATH:
             byod_path = Path(BYOD_PATH)
@@ -73,6 +75,7 @@ if USE_BYOD:
             if len(uploaded) != 1:
                 raise DatasetRefused(f'Upload exactly one .csv, .json, .jsonl or .txt file (got {len(uploaded)}; an empty or cancelled upload gives 0). Run this cell again, or set BYOD_PATH.')
             file_name, payload = next(iter(uploaded.items()))
+            byod_label = file_name
             byod_path = Path('work') / file_name
             byod_path.parent.mkdir(parents=True, exist_ok=True)
             byod_path.write_bytes(payload)
@@ -81,7 +84,7 @@ if USE_BYOD:
         validate_splits(byod_splits)
         check_split_disjoint(byod_splits)
     except (OSError, TypeError, ValueError) as exc:
-        raise DatasetRefused(f'BYOD refused: {str(exc).rstrip(".")}. Nothing from this file is used and the run is reset; files an earlier run wrote to outputs/ are kept. Fix the file (or BYOD_PATH) and run this cell again.') from None
+        raise DatasetRefused(f'{byod_label}: {str(exc).rstrip(".")}. Nothing from this file is used and the run is reset; files an earlier run wrote to outputs/ are kept. Fix the file (or BYOD_PATH) and run this cell again.') from None
     splits = byod_splits
     data_source = 'BYOD (' + file_name + ')'
     raw_papers = {'byod': len(records)}
@@ -960,7 +963,7 @@ TEMPLATE = {
         "file.\n"
         "- **Section 4: \"Upload exactly one … file (got 0 …)\".** The upload was cancelled or empty. Run Section 4 again "
         "and pick one file, or set `BYOD_PATH`.\n"
-        "- **Section 4: \"BYOD refused: …\".** The message names what is wrong with the file; nothing from it is used, the "
+        "- **Section 4: \"Refused: <file>: …\".** One line, no traceback, and Run all stops there. The message names what is wrong with the file; nothing from it is used, the "
         "run is reset, and files an earlier run wrote to `outputs/` are kept. Fix the file and run Section 4 again, then "
         "**Run after**.\n"
         "- **Section 4: \"… is not UTF-8 text\".** Save the file as UTF-8 (a spreadsheet's 'CSV UTF-8') and run Section "
