@@ -78,4 +78,4 @@ This repository’s code and accompanying documentation were developed with gene
   `outputs/`; unexpected errors keep their traceback.
 - **Spec 2.5 (T31-3):** `notebook_kind` `TUTORIAL`, the use notice before the first code cell, IEEE references;
   `DIMER_ISOLATED_ENV` is documented (T31-5); run-status wording points at `docs/release-verification.md` (T31-2).
-- Numbers quoted in the worked answers are a CPU build record pending a hosted run of the regenerated notebook.
+- Numbers quoted in the worked answers were first a CPU build record; they are now the pre-registered evaluation of record, the Colab CLI T4 run of 2026-10-17 (blob `87fdb2de`). The current blob `1e01705c` passed its default path on a hosted Colab Tesla T4 on 2026-10-29, and its scripted DAT20 refusal passed on 2026-10-30 (see "Recorded executions" in `docs/release-verification.md`).
